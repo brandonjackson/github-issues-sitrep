@@ -13,13 +13,22 @@ const MODELS = {
 
 // Tier 1: Haiku - Summarize individual issues (background processing)
 async function summarizeIssue(issue) {
+  // Build comment context if comments exist
+  let commentsText = '';
+  if (issue.comments && issue.comments.length > 0) {
+    const recentComments = issue.comments.slice(-5); // Last 5 comments
+    commentsText = '\n\nRecent Comments:\n' + recentComments.map(c =>
+      `- ${c.author}: ${c.body.substring(0, 200)}${c.body.length > 200 ? '...' : ''}`
+    ).join('\n');
+  }
+
   const prompt = `Summarize this GitHub issue in 1-2 concise sentences. Focus on the problem and current status.
 
 Title: ${issue.title}
 State: ${issue.state}
 Labels: ${issue.labels ? issue.labels.map(l => l.name).join(', ') : 'none'}
 Created: ${new Date(issue.created_at).toLocaleDateString()}
-Body: ${issue.body ? issue.body.substring(0, 500) : 'No description'}
+Body: ${issue.body ? issue.body.substring(0, 500) : 'No description'}${commentsText}
 
 Summary:`;
 
@@ -184,24 +193,29 @@ Provide a comprehensive, actionable answer. Include specific issue numbers when 
   }
 }
 
-// Background job: Summarize all issues that don't have summaries
+// Background job: Summarize open issues that don't have summaries
 async function generateMissingSummaries(repoId, onProgress) {
-  const issues = db.getIssues(repoId);
-  const totalIssues = issues.length;
+  // Only get open issues
+  const openIssues = db.getIssues(repoId, { state: 'open' });
+  const totalIssues = openIssues.length;
   let processed = 0;
   let created = 0;
 
-  for (const issue of issues) {
+  for (const issue of openIssues) {
     const existing = db.getSummary(issue.id, 'quick');
 
     if (!existing) {
+      // Get comments for this issue
+      const comments = db.getComments(issue.id);
+
       // Parse labels back to array for summarization
-      const issueWithLabels = {
+      const issueWithLabelsAndComments = {
         ...issue,
-        labels: JSON.parse(issue.labels)
+        labels: JSON.parse(issue.labels),
+        comments: comments
       };
 
-      const summary = await summarizeIssue(issueWithLabels);
+      const summary = await summarizeIssue(issueWithLabelsAndComments);
       db.saveSummary(issue.id, 'quick', summary);
       created++;
 
@@ -218,7 +232,7 @@ async function generateMissingSummaries(repoId, onProgress) {
     onProgress({ current: totalIssues, total: totalIssues });
   }
 
-  console.log(`Generated ${created} new summaries out of ${processed} issues`);
+  console.log(`Generated ${created} new summaries for ${processed} open issues`);
   return { processed, created };
 }
 

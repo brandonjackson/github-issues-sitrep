@@ -75,23 +75,23 @@ app.post('/api/sync', async (req, res) => {
 
     res.json({ message: 'Sync started', jobId });
 
-    // Perform sync
+    // Perform sync (includes fetching comments for open issues)
     const result = await githubSync.syncRepository(owner, name, (progress) => {
       const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
       syncJobs.set(jobId, {
         status: 'fetching',
-        stage: `Fetching issues from GitHub (${progress.current}/${progress.total})`,
+        stage: `Fetching issues and comments (${progress.current}/${progress.total})`,
         progress,
         percentage
       });
     });
 
-    // Generate summaries in background
-    const totalIssues = result.issuesCount;
+    // Generate summaries for open issues only
+    const totalOpenIssues = result.openIssuesCount;
     syncJobs.set(jobId, {
       status: 'summarizing',
-      stage: `Generating AI summaries (0/${totalIssues})`,
-      progress: { current: 0, total: totalIssues },
+      stage: `Generating AI summaries for open issues (0/${totalOpenIssues})`,
+      progress: { current: 0, total: totalOpenIssues },
       percentage: 0
     });
 
@@ -99,7 +99,7 @@ app.post('/api/sync', async (req, res) => {
       const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
       syncJobs.set(jobId, {
         status: 'summarizing',
-        stage: `Generating AI summaries (${progress.current}/${progress.total})`,
+        stage: `Generating AI summaries for open issues (${progress.current}/${progress.total})`,
         progress,
         percentage
       });

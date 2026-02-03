@@ -47,6 +47,16 @@ function initDatabase() {
       UNIQUE(issue_id, summary_type)
     );
 
+    CREATE TABLE IF NOT EXISTS comments (
+      id INTEGER PRIMARY KEY,
+      issue_id INTEGER NOT NULL,
+      author TEXT,
+      body TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (issue_id) REFERENCES issues(id)
+    );
+
     CREATE TABLE IF NOT EXISTS cached_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       repo_id INTEGER NOT NULL,
@@ -62,6 +72,7 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_issues_is_stale ON issues(is_stale);
     CREATE INDEX IF NOT EXISTS idx_issues_updated_at ON issues(updated_at);
     CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at);
+    CREATE INDEX IF NOT EXISTS idx_comments_issue_id ON comments(issue_id);
   `);
 }
 
@@ -223,6 +234,40 @@ function getCachedReport(repoId, reportType) {
   return report;
 }
 
+// Comment operations
+function saveComment(issueId, comment) {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO comments (id, issue_id, author, body, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    comment.id,
+    issueId,
+    comment.user.login,
+    comment.body || '',
+    new Date(comment.created_at).getTime(),
+    new Date(comment.updated_at).getTime()
+  );
+}
+
+function getComments(issueId) {
+  return db.prepare('SELECT * FROM comments WHERE issue_id = ? ORDER BY created_at ASC').all(issueId);
+}
+
+function getIssuesWithSummariesAndComments(repoId, filters = {}) {
+  const issues = getIssues(repoId, filters);
+  return issues.map(issue => {
+    const summary = getSummary(issue.id, 'quick');
+    const comments = getComments(issue.id);
+    return {
+      ...issue,
+      labels: JSON.parse(issue.labels),
+      summary: summary ? summary.content : null,
+      comments: comments
+    };
+  });
+}
+
 module.exports = {
   db,
   initDatabase,
@@ -236,5 +281,8 @@ module.exports = {
   getSummary,
   getIssuesWithSummaries,
   saveCachedReport,
-  getCachedReport
+  getCachedReport,
+  saveComment,
+  getComments,
+  getIssuesWithSummariesAndComments
 };

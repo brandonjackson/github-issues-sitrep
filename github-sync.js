@@ -82,14 +82,47 @@ async function syncRepository(owner, name, onProgress) {
     onProgress({ current: totalIssues, total: totalIssues });
   }
 
+  // Fetch comments for open issues
+  const openIssues = allIssues.filter(issue => issue.state === 'open');
+  console.log(`Fetching comments for ${openIssues.length} open issues...`);
+
+  for (let i = 0; i < openIssues.length; i++) {
+    const issue = openIssues[i];
+
+    if (issue.comments > 0) {
+      try {
+        const commentsResponse = await octokit.issues.listComments({
+          owner,
+          repo: name,
+          issue_number: issue.number,
+          per_page: 100
+        });
+
+        for (const comment of commentsResponse.data) {
+          db.saveComment(issue.id, comment);
+        }
+
+        console.log(`Fetched ${commentsResponse.data.length} comments for issue #${issue.number}`);
+      } catch (error) {
+        console.error(`Error fetching comments for issue #${issue.number}:`, error.message);
+        // Continue with other issues even if one fails
+      }
+    }
+
+    if (onProgress && i % 10 === 0) {
+      onProgress({ current: i, total: openIssues.length });
+    }
+  }
+
   // Update sync timestamp
   db.updateRepoSync(repo.id, null);
 
-  console.log(`Sync complete: ${allIssues.length} issues saved`);
+  console.log(`Sync complete: ${allIssues.length} issues saved, comments fetched for ${openIssues.length} open issues`);
 
   return {
     repo,
-    issuesCount: allIssues.length
+    issuesCount: allIssues.length,
+    openIssuesCount: openIssues.length
   };
 }
 
