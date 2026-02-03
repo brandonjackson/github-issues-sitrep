@@ -12,6 +12,10 @@ const configError = document.getElementById('config-error');
 const repoNameDisplay = document.getElementById('repo-name');
 const changeRepoBtn = document.getElementById('change-repo-btn');
 const syncStatus = document.getElementById('sync-status');
+const progressSection = document.getElementById('progress-section');
+const progressStage = document.getElementById('progress-stage');
+const progressPercentage = document.getElementById('progress-percentage');
+const progressFill = document.getElementById('progress-fill');
 const chatMessages = document.getElementById('chat-messages');
 const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
@@ -131,7 +135,8 @@ async function startSync() {
   if (isSyncing) return;
 
   isSyncing = true;
-  setSyncStatus('syncing', 'Syncing issues...');
+  setSyncStatus('syncing', 'Starting sync...');
+  showProgress('Starting sync...', 0);
   disableStarterButtons(true);
 
   try {
@@ -152,6 +157,7 @@ async function startSync() {
   } catch (error) {
     console.error('Sync error:', error);
     setSyncStatus('error', 'Sync failed');
+    hideProgress();
     isSyncing = false;
     disableStarterButtons(false);
   }
@@ -163,27 +169,30 @@ async function pollSyncStatus() {
       const response = await fetch(`/api/sync/${currentRepo.owner}/${currentRepo.name}`);
       const data = await response.json();
 
-      if (data.status === 'syncing') {
-        setSyncStatus('syncing', 'Fetching issues from GitHub...');
-      } else if (data.status === 'summarizing') {
-        setSyncStatus('syncing', 'Generating AI summaries...');
-      } else if (data.status === 'generating-reports') {
-        setSyncStatus('syncing', 'Preparing starter reports...');
+      if (data.status === 'fetching' || data.status === 'summarizing' || data.status === 'generating-reports') {
+        // Update progress bar with detailed information
+        const stage = data.stage || 'Processing...';
+        const percentage = data.percentage || 0;
+
+        setSyncStatus('syncing', stage);
+        updateProgress(stage, percentage);
       } else if (data.status === 'complete') {
         clearInterval(interval);
         setSyncStatus('complete', `Ready! ${data.issuesCount} issues synced`);
+        hideProgress();
         isSyncing = false;
         disableStarterButtons(false);
       } else if (data.status === 'error') {
         clearInterval(interval);
         setSyncStatus('error', 'Sync failed: ' + data.error);
+        hideProgress();
         isSyncing = false;
         disableStarterButtons(false);
       }
     } catch (error) {
       console.error('Poll error:', error);
     }
-  }, 2000);
+  }, 1000); // Poll more frequently for smoother progress updates
 }
 
 async function checkSyncStatus() {
@@ -191,15 +200,18 @@ async function checkSyncStatus() {
     const response = await fetch(`/api/sync/${currentRepo.owner}/${currentRepo.name}`);
     const data = await response.json();
 
-    if (data.status === 'syncing' || data.status === 'summarizing' || data.status === 'generating-reports') {
+    if (data.status === 'fetching' || data.status === 'summarizing' || data.status === 'generating-reports') {
       isSyncing = true;
+      showProgress(data.stage || 'Syncing...', data.percentage || 0);
       pollSyncStatus();
     } else {
       setSyncStatus('complete', 'Repository data loaded');
+      hideProgress();
     }
   } catch (error) {
     // No active sync
     setSyncStatus('complete', 'Repository data loaded');
+    hideProgress();
   }
 }
 
@@ -364,6 +376,22 @@ function hideError() {
 function setSyncStatus(status, message) {
   syncStatus.textContent = message;
   syncStatus.className = `sync-status ${status}`;
+}
+
+function showProgress(stage, percentage) {
+  progressSection.style.display = 'block';
+  updateProgress(stage, percentage);
+}
+
+function updateProgress(stage, percentage) {
+  progressStage.textContent = stage;
+  progressPercentage.textContent = `${percentage}%`;
+  progressFill.style.width = `${percentage}%`;
+}
+
+function hideProgress() {
+  progressSection.style.display = 'none';
+  updateProgress('', 0);
 }
 
 function disableStarterButtons(disabled) {

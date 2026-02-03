@@ -61,25 +61,61 @@ app.post('/api/sync', async (req, res) => {
     }
 
     // Start sync in background
-    syncJobs.set(jobId, { status: 'syncing', progress: {} });
+    syncJobs.set(jobId, {
+      status: 'fetching',
+      stage: 'Fetching issues from GitHub',
+      progress: { current: 0, total: 0 },
+      percentage: 0
+    });
 
     res.json({ message: 'Sync started', jobId });
 
     // Perform sync
     const result = await githubSync.syncRepository(owner, name, (progress) => {
-      syncJobs.set(jobId, { status: 'syncing', progress });
+      const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+      syncJobs.set(jobId, {
+        status: 'fetching',
+        stage: `Fetching issues from GitHub (${progress.current}/${progress.total})`,
+        progress,
+        percentage
+      });
     });
 
     // Generate summaries in background
-    syncJobs.set(jobId, { status: 'summarizing', progress: {} });
+    const totalIssues = result.issuesCount;
+    syncJobs.set(jobId, {
+      status: 'summarizing',
+      stage: `Generating AI summaries (0/${totalIssues})`,
+      progress: { current: 0, total: totalIssues },
+      percentage: 0
+    });
 
     await aiService.generateMissingSummaries(result.repo.id, (progress) => {
-      syncJobs.set(jobId, { status: 'summarizing', progress });
+      const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+      syncJobs.set(jobId, {
+        status: 'summarizing',
+        stage: `Generating AI summaries (${progress.current}/${progress.total})`,
+        progress,
+        percentage
+      });
     });
 
     // Generate starter reports
-    syncJobs.set(jobId, { status: 'generating-reports', progress: {} });
-    await aiService.generateAllStarterReports(result.repo.id);
+    syncJobs.set(jobId, {
+      status: 'generating-reports',
+      stage: 'Generating starter reports (1/3)',
+      progress: { current: 1, total: 3 },
+      percentage: 33
+    });
+    await aiService.generateAllStarterReports(result.repo.id, (progress) => {
+      const percentage = Math.round((progress.current / progress.total) * 100);
+      syncJobs.set(jobId, {
+        status: 'generating-reports',
+        stage: `Generating starter reports (${progress.current}/${progress.total})`,
+        progress,
+        percentage
+      });
+    });
 
     // Complete
     syncJobs.set(jobId, {

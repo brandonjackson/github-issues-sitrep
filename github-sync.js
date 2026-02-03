@@ -19,10 +19,6 @@ async function syncRepository(owner, name, onProgress) {
 
   // Fetch all issues (both open and closed)
   while (hasMore) {
-    if (onProgress) {
-      onProgress({ stage: 'fetching', page, total: allIssues.length });
-    }
-
     try {
       const response = await octokit.issues.listForRepo({
         owner,
@@ -38,7 +34,11 @@ async function syncRepository(owner, name, onProgress) {
       const issues = response.data.filter(issue => !issue.pull_request);
 
       allIssues.push(...issues);
-      console.log(`Fetched page ${page}: ${issues.length} issues`);
+      console.log(`Fetched page ${page}: ${issues.length} issues (total: ${allIssues.length})`);
+
+      if (onProgress) {
+        onProgress({ current: allIssues.length, total: allIssues.length });
+      }
 
       hasMore = response.data.length === 100;
       page++;
@@ -51,16 +51,19 @@ async function syncRepository(owner, name, onProgress) {
   console.log(`Total issues fetched: ${allIssues.length}`);
 
   // Save issues to database
-  if (onProgress) {
-    onProgress({ stage: 'saving', total: allIssues.length });
-  }
+  const totalIssues = allIssues.length;
 
   for (let i = 0; i < allIssues.length; i++) {
     db.saveIssue(repo.id, allIssues[i]);
 
-    if (onProgress && i % 50 === 0) {
-      onProgress({ stage: 'saving', current: i, total: allIssues.length });
+    if (onProgress && (i % 25 === 0 || i === allIssues.length - 1)) {
+      onProgress({ current: i + 1, total: totalIssues });
     }
+  }
+
+  // Final progress update
+  if (onProgress) {
+    onProgress({ current: totalIssues, total: totalIssues });
   }
 
   // Update sync timestamp

@@ -187,6 +187,7 @@ Provide a comprehensive, actionable answer. Include specific issue numbers when 
 // Background job: Summarize all issues that don't have summaries
 async function generateMissingSummaries(repoId, onProgress) {
   const issues = db.getIssues(repoId);
+  const totalIssues = issues.length;
   let processed = 0;
   let created = 0;
 
@@ -204,12 +205,17 @@ async function generateMissingSummaries(repoId, onProgress) {
       db.saveSummary(issue.id, 'quick', summary);
       created++;
 
-      if (onProgress && created % 10 === 0) {
-        onProgress({ processed: created, total: issues.length });
+      if (onProgress && created % 5 === 0) {
+        onProgress({ current: created, total: totalIssues });
       }
     }
 
     processed++;
+  }
+
+  // Final progress update
+  if (onProgress) {
+    onProgress({ current: totalIssues, total: totalIssues });
   }
 
   console.log(`Generated ${created} new summaries out of ${processed} issues`);
@@ -217,13 +223,25 @@ async function generateMissingSummaries(repoId, onProgress) {
 }
 
 // Background job: Generate all starter reports
-async function generateAllStarterReports(repoId) {
+async function generateAllStarterReports(repoId, onProgress) {
   const reports = ['quick-sitrep', 'recent-bugs', 'zombie-tickets'];
+  const totalReports = reports.length;
 
-  for (const reportType of reports) {
+  for (let i = 0; i < reports.length; i++) {
+    const reportType = reports[i];
     console.log(`Generating ${reportType} report...`);
+
+    if (onProgress) {
+      onProgress({ current: i + 1, total: totalReports });
+    }
+
     const content = await generateStarterReport(repoId, reportType);
     db.saveCachedReport(repoId, reportType, content);
+  }
+
+  // Final progress update
+  if (onProgress) {
+    onProgress({ current: totalReports, total: totalReports });
   }
 
   console.log('All starter reports generated');
