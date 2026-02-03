@@ -7,7 +7,7 @@ const anthropic = new Anthropic({
 
 // Two-tier model configuration
 const MODELS = {
-  indexing: 'claude-haiku-4-5-20250929',    // Fast & cheap for background processing
+  indexing: 'claude-3-5-haiku-20241022',    // Fast & cheap for background processing
   query: 'claude-opus-4-5-20251101'          // Premium intelligence for user queries
 };
 
