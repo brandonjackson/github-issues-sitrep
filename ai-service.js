@@ -58,24 +58,49 @@ async function generateStarterReport(repoId, reportType) {
   let relevantIssues = [];
 
   if (reportType === 'quick-sitrep') {
-    relevantIssues = issues.slice(0, 50); // Most recent 50
-    prompt = `Generate a Quick Sitrep for the ${repo.owner}/${repo.name} repository.
+    const openIssues = db.getIssuesWithSummaries(repoId, { state: 'open', limit: 100 });
 
-Total Issues: ${db.getIssueCount(repoId)}
-Open Issues: ${db.getIssueCount(repoId, { state: 'open' })}
-Closed Issues: ${db.getIssueCount(repoId, { state: 'closed' })}
-Open Bugs: ${db.getIssueCount(repoId, { state: 'open', is_bug: true })}
-Stale Issues: ${db.getIssueCount(repoId, { is_stale: true })}
+    // Categorize issues by status/stage based on labels
+    const inProgress = openIssues.filter(i =>
+      i.labels.some(l => /in progress|wip|working|started/i.test(l))
+    );
+    const ready = openIssues.filter(i =>
+      i.labels.some(l => /ready|to do|todo|backlog/i.test(l))
+    );
+    const blocked = openIssues.filter(i =>
+      i.labels.some(l => /blocked|waiting|hold/i.test(l))
+    );
+    const review = openIssues.filter(i =>
+      i.labels.some(l => /review|needs review|pr/i.test(l))
+    );
 
-Recent Issues:
-${relevantIssues.slice(0, 20).map(i => `#${i.number}: ${i.title} (${i.state}) - ${i.summary || ''}`).join('\n')}
+    prompt = `Generate a concise Project Management Sitrep for ${repo.owner}/${repo.name}.
 
-Provide a brief status update covering:
-1. Overall health and activity
-2. Key trends or patterns
-3. Top priorities or concerns
+**Metrics:**
+- Total Open: ${db.getIssueCount(repoId, { state: 'open' })}
+- Open Bugs: ${db.getIssueCount(repoId, { state: 'open', is_bug: true })}
+- Stale (90+ days): ${db.getIssueCount(repoId, { is_stale: true })}
 
-Keep it concise (3-4 paragraphs).`;
+**Issues by Stage:**
+${inProgress.length > 0 ? `\nIn Progress (${inProgress.length}):\n${inProgress.slice(0, 8).map(i => `#${i.number}: ${i.title}`).join('\n')}` : ''}
+${ready.length > 0 ? `\nReady/Backlog (${ready.length}):\n${ready.slice(0, 8).map(i => `#${i.number}: ${i.title}`).join('\n')}` : ''}
+${blocked.length > 0 ? `\nBlocked (${blocked.length}):\n${blocked.slice(0, 8).map(i => `#${i.number}: ${i.title}`).join('\n')}` : ''}
+${review.length > 0 ? `\nIn Review (${review.length}):\n${review.slice(0, 8).map(i => `#${i.number}: ${i.title}`).join('\n')}` : ''}
+
+**Recent Activity (Last 20):**
+${openIssues.slice(0, 20).map(i => `#${i.number}: ${i.title} - ${i.summary || ''}`).join('\n')}
+
+**Instructions:**
+Write a concise PM-style status report using bullet points. Include:
+
+• **Status Overview** - Current state in 1-2 sentences
+• **In Progress** - What's actively being worked on (highlight key items)
+• **Ready to Start** - What's queued up next
+• **Blockers** - Any issues that are blocked/waiting (with reasons if apparent)
+• **Priorities** - Top 3-5 items that need attention
+• **Risks/Concerns** - Any patterns or issues that could impact delivery
+
+Use concise, actionable language. Focus on what matters to stakeholders. Keep total response to 4-5 paragraphs max.`;
 
   } else if (reportType === 'recent-bugs') {
     relevantIssues = db.getIssuesWithSummaries(repoId, { is_bug: true, state: 'open', limit: 30 });
@@ -109,7 +134,7 @@ Keep it practical (3-4 paragraphs).`;
   try {
     const response = await anthropic.messages.create({
       model: MODELS.indexing,
-      max_tokens: 800,
+      max_tokens: 1200,
       messages: [{
         role: 'user',
         content: prompt
