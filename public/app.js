@@ -137,7 +137,16 @@ async function handleSetRepo() {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || 'Repository not found');
+      // Handle rate limit errors specially
+      if (data.isRateLimit) {
+        const errorLines = data.error.split('\n');
+        showError(errorLines.join('\n')); // Show full error message
+      } else {
+        showError(data.error || 'Repository not found');
+      }
+      setRepoBtn.disabled = false;
+      setRepoBtn.textContent = 'Connect';
+      return;
     }
 
     currentRepo = { owner, name, ...data };

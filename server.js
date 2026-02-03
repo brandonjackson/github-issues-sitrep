@@ -27,7 +27,12 @@ app.get('/api/repo/:owner/:name', async (req, res) => {
     const info = await githubSync.getRepoInfo(owner, name);
 
     if (!info.success) {
-      return res.status(404).json({ error: 'Repository not found' });
+      // Return appropriate status code and include isRateLimit flag
+      const statusCode = info.isRateLimit ? 429 : 404;
+      return res.status(statusCode).json({
+        error: info.error,
+        isRateLimit: info.isRateLimit || false
+      });
     }
 
     // Check if we have local data

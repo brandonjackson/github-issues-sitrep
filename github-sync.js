@@ -107,6 +107,21 @@ async function getRepoInfo(owner, name) {
       }
     };
   } catch (error) {
+    // Handle rate limit errors with helpful message
+    if (error.status === 403 && error.message.includes('rate limit')) {
+      return {
+        success: false,
+        isRateLimit: true,
+        error: 'GitHub API rate limit exceeded. Without authentication, you\'re limited to 60 requests/hour.\n\n' +
+               '💡 Solution: Add a GitHub token to your .env file:\n' +
+               '   1. Create a token at https://github.com/settings/tokens\n' +
+               '   2. Select "public_repo" scope (read-only)\n' +
+               '   3. Add to .env: GITHUB_TOKEN=your_token_here\n' +
+               '   4. Restart the server\n\n' +
+               'With a token, you get 5,000 requests/hour!'
+      };
+    }
+
     return {
       success: false,
       error: error.message
