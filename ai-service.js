@@ -193,38 +193,127 @@ Provide a comprehensive, actionable answer. Include specific issue numbers when 
   }
 }
 
-// Background job: Summarize open issues that don't have summaries
+// Batch summarize multiple issues in one API call
+async function summarizeBatch(issues) {
+  const issuesText = issues.map((issue, idx) => {
+    let commentsText = '';
+    if (issue.comments && issue.comments.length > 0) {
+      const recentComments = issue.comments.slice(-3); // Last 3 comments for batch
+      commentsText = '\nRecent Comments: ' + recentComments.map(c =>
+        `${c.author}: ${c.body.substring(0, 150)}${c.body.length > 150 ? '...' : ''}`
+      ).join('; ');
+    }
+
+    return `Issue ${idx + 1}:
+#${issue.number} - ${issue.title}
+State: ${issue.state} | Labels: ${issue.labels ? issue.labels.map(l => l.name).join(', ') : 'none'}
+Body: ${issue.body ? issue.body.substring(0, 300) : 'No description'}${commentsText}`;
+  }).join('\n\n---\n\n');
+
+  const prompt = `Summarize each of these GitHub issues in 1-2 concise sentences. Focus on the problem and current status.
+Return ONLY the summaries in order, one per line, starting with "Issue N: " where N is the issue number.
+
+${issuesText}
+
+Summaries:`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: MODELS.indexing,
+      max_tokens: 300 * issues.length, // Scale with number of issues
+      messages: [{
+        role: 'user',
+        content: prompt
+      }]
+    });
+
+    const summariesText = response.content[0].text.trim();
+    const summaries = summariesText.split('\n').filter(line => line.trim());
+
+    // Parse summaries back to individual issues
+    const results = [];
+    for (let i = 0; i < issues.length; i++) {
+      const summaryLine = summaries[i] || '';
+      // Remove "Issue N: " prefix if present
+      const summary = summaryLine.replace(/^Issue \d+:\s*/, '').trim() || `${issues[i].title} - ${issues[i].state}`;
+      results.push(summary);
+    }
+
+    return results;
+  } catch (error) {
+    console.error('Error summarizing batch:', error.message);
+    // Fallback to basic summaries
+    return issues.map(issue => `${issue.title} - ${issue.state}`);
+  }
+}
+
+// Background job: Summarize open issues that don't have summaries (with batching and parallelization)
 async function generateMissingSummaries(repoId, onProgress) {
   // Only get open issues
   const openIssues = db.getIssues(repoId, { state: 'open' });
   const totalIssues = openIssues.length;
-  let processed = 0;
-  let created = 0;
 
+  // Filter issues that need summaries and add comments
+  const issuesToSummarize = [];
   for (const issue of openIssues) {
     const existing = db.getSummary(issue.id, 'quick');
-
     if (!existing) {
-      // Get comments for this issue
       const comments = db.getComments(issue.id);
-
-      // Parse labels back to array for summarization
-      const issueWithLabelsAndComments = {
+      issuesToSummarize.push({
         ...issue,
         labels: JSON.parse(issue.labels),
         comments: comments
-      };
+      });
+    }
+  }
 
-      const summary = await summarizeIssue(issueWithLabelsAndComments);
-      db.saveSummary(issue.id, 'quick', summary);
-      created++;
+  if (issuesToSummarize.length === 0) {
+    console.log('No new summaries needed');
+    if (onProgress) {
+      onProgress({ current: totalIssues, total: totalIssues });
+    }
+    return { processed: totalIssues, created: 0 };
+  }
 
-      if (onProgress && created % 5 === 0) {
-        onProgress({ current: created, total: totalIssues });
+  console.log(`Summarizing ${issuesToSummarize.length} issues with batching...`);
+
+  // Batch configuration
+  const BATCH_SIZE = 8; // Issues per API call
+  const CONCURRENT_BATCHES = 3; // Parallel API calls
+
+  let created = 0;
+
+  // Create batches
+  const batches = [];
+  for (let i = 0; i < issuesToSummarize.length; i += BATCH_SIZE) {
+    batches.push(issuesToSummarize.slice(i, i + BATCH_SIZE));
+  }
+
+  // Process batches with concurrency limit
+  for (let i = 0; i < batches.length; i += CONCURRENT_BATCHES) {
+    const currentBatches = batches.slice(i, i + CONCURRENT_BATCHES);
+
+    // Process these batches in parallel
+    const results = await Promise.all(
+      currentBatches.map(batch => summarizeBatch(batch))
+    );
+
+    // Save all summaries from this round
+    for (let j = 0; j < results.length; j++) {
+      const batch = currentBatches[j];
+      const summaries = results[j];
+
+      for (let k = 0; k < batch.length; k++) {
+        db.saveSummary(batch[k].id, 'quick', summaries[k]);
+        created++;
+
+        if (onProgress) {
+          onProgress({ current: created, total: issuesToSummarize.length });
+        }
       }
     }
 
-    processed++;
+    console.log(`Completed ${Math.min(i + CONCURRENT_BATCHES, batches.length)}/${batches.length} batches`);
   }
 
   // Final progress update
@@ -232,8 +321,8 @@ async function generateMissingSummaries(repoId, onProgress) {
     onProgress({ current: totalIssues, total: totalIssues });
   }
 
-  console.log(`Generated ${created} new summaries for ${processed} open issues`);
-  return { processed, created };
+  console.log(`Generated ${created} new summaries for ${totalIssues} open issues (${batches.length} batches, ${BATCH_SIZE} per batch, ${CONCURRENT_BATCHES} concurrent)`);
+  return { processed: totalIssues, created };
 }
 
 // Background job: Generate all starter reports
