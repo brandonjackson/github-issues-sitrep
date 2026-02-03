@@ -212,7 +212,7 @@ async function pollSyncStatus() {
         disableStarterButtons(false);
       } else if (data.status === 'error') {
         clearInterval(interval);
-        setSyncStatus('error', 'Sync failed: ' + data.error);
+        showSyncError(data);
         hideProgress();
         isSyncing = false;
         disableStarterButtons(false);
@@ -404,6 +404,17 @@ function hideError() {
 function setSyncStatus(status, message) {
   syncStatus.textContent = message;
   syncStatus.className = `sync-status ${status}`;
+}
+
+function showSyncError(errorData) {
+  if (errorData.isRateLimit) {
+    // Show a helpful error message in the chat as an assistant message
+    const errorMessage = `⚠️ GitHub API Rate Limit Exceeded\n\n${errorData.error}`;
+    addMessage('assistant', errorMessage);
+    setSyncStatus('error', 'Sync failed: Rate limit exceeded');
+  } else {
+    setSyncStatus('error', 'Sync failed: ' + errorData.error);
+  }
 }
 
 function showProgress(stage, percentage) {

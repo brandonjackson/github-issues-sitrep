@@ -129,7 +129,11 @@ app.post('/api/sync', async (req, res) => {
 
   } catch (error) {
     const jobId = `${req.body.owner}/${req.body.name}`;
-    syncJobs.set(jobId, { status: 'error', error: error.message });
+    syncJobs.set(jobId, {
+      status: 'error',
+      error: error.message,
+      isRateLimit: error.isRateLimit || false
+    });
     console.error('Sync error:', error);
   }
 });
