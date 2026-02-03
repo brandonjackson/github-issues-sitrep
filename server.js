@@ -165,6 +165,124 @@ app.get('/api/sync/:owner/:name', (req, res) => {
   res.json(job);
 });
 
+// Refresh repository (incremental sync)
+app.post('/api/refresh', async (req, res) => {
+  try {
+    const { owner, name } = req.body;
+
+    if (!owner || !name) {
+      return res.status(400).json({ error: 'Owner and name are required' });
+    }
+
+    const jobId = `${owner}/${name}`;
+
+    // Check if already syncing
+    if (syncJobs.has(jobId)) {
+      return res.json({ message: 'Sync already in progress', jobId });
+    }
+
+    // Start refresh in background
+    syncJobs.set(jobId, {
+      status: 'fetching',
+      stage: 'Checking for updates',
+      progress: { current: 0, total: 0 },
+      percentage: 0
+    });
+
+    res.json({ message: 'Refresh started', jobId });
+
+    // Perform refresh (incremental sync)
+    const result = await githubSync.refreshRepository(owner, name, (progress) => {
+      const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+
+      let stageMessage = '';
+      if (progress.stage === 'issues') {
+        stageMessage = `Checking for updates (${progress.current} found)`;
+      } else if (progress.stage === 'saving') {
+        stageMessage = `Saving updates (${progress.current}/${progress.total})`;
+      } else if (progress.stage === 'comments') {
+        stageMessage = `Updating comments (${progress.current}/${progress.total} open issues)`;
+      }
+
+      syncJobs.set(jobId, {
+        status: 'fetching',
+        stage: stageMessage,
+        progress,
+        percentage
+      });
+    });
+
+    if (result.updatedIssuesCount === 0) {
+      // No updates found
+      syncJobs.set(jobId, {
+        status: 'complete',
+        issuesCount: 0,
+        message: 'No updates found',
+        completedAt: Date.now()
+      });
+    } else {
+      // Generate summaries for updated open issues only
+      const totalOpenIssues = result.openIssuesCount;
+
+      if (totalOpenIssues > 0) {
+        syncJobs.set(jobId, {
+          status: 'summarizing',
+          stage: `Generating AI summaries for updated issues (0/${totalOpenIssues})`,
+          progress: { current: 0, total: totalOpenIssues },
+          percentage: 0
+        });
+
+        await aiService.generateMissingSummaries(result.repo.id, (progress) => {
+          const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+          syncJobs.set(jobId, {
+            status: 'summarizing',
+            stage: `Generating AI summaries for updated issues (${progress.current}/${progress.total})`,
+            progress,
+            percentage
+          });
+        });
+      }
+
+      // Regenerate starter reports
+      syncJobs.set(jobId, {
+        status: 'generating-reports',
+        stage: 'Updating starter reports (1/3)',
+        progress: { current: 1, total: 3 },
+        percentage: 33
+      });
+      await aiService.generateAllStarterReports(result.repo.id, (progress) => {
+        const percentage = Math.round((progress.current / progress.total) * 100);
+        syncJobs.set(jobId, {
+          status: 'generating-reports',
+          stage: `Updating starter reports (${progress.current}/${progress.total})`,
+          progress,
+          percentage
+        });
+      });
+
+      // Complete
+      syncJobs.set(jobId, {
+        status: 'complete',
+        issuesCount: result.updatedIssuesCount,
+        message: `Updated ${result.updatedIssuesCount} issue(s)`,
+        completedAt: Date.now()
+      });
+    }
+
+    // Clean up after 5 minutes
+    setTimeout(() => syncJobs.delete(jobId), 300000);
+
+  } catch (error) {
+    const jobId = `${req.body.owner}/${req.body.name}`;
+    syncJobs.set(jobId, {
+      status: 'error',
+      error: error.message,
+      isRateLimit: error.isRateLimit || false
+    });
+    console.error('Refresh error:', error);
+  }
+});
+
 // Get starter report (cached)
 app.get('/api/report/:owner/:name/:type', async (req, res) => {
   try {

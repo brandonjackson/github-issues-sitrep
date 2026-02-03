@@ -157,7 +157,144 @@ async function getRepoInfo(owner, name) {
   }
 }
 
+async function refreshRepository(owner, name, onProgress) {
+  console.log(`Refreshing repository: ${owner}/${name}`);
+
+  let repo = db.getRepo(owner, name);
+  if (!repo) {
+    throw new Error('Repository not found in database. Please do a full sync first.');
+  }
+
+  // Get the last updated timestamp from our database
+  const lastUpdated = db.getLastUpdatedTimestamp(repo.id);
+  if (!lastUpdated) {
+    throw new Error('No previous sync found. Please do a full sync first.');
+  }
+
+  const since = new Date(lastUpdated).toISOString();
+  console.log(`Fetching issues updated since: ${since}`);
+
+  const updatedIssues = [];
+  let page = 1;
+  let hasMore = true;
+
+  // Fetch only issues updated since last sync
+  while (hasMore) {
+    try {
+      const response = await octokit.issues.listForRepo({
+        owner,
+        repo: name,
+        state: 'all',
+        per_page: 100,
+        page,
+        sort: 'updated',
+        direction: 'desc',
+        since: since
+      });
+
+      // Filter out pull requests
+      const issues = response.data.filter(issue => !issue.pull_request);
+
+      if (issues.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      updatedIssues.push(...issues);
+      console.log(`Fetched page ${page}: ${issues.length} updated issues (total: ${updatedIssues.length})`);
+
+      if (onProgress) {
+        onProgress({ stage: 'issues', current: updatedIssues.length, total: updatedIssues.length });
+      }
+
+      hasMore = response.data.length === 100;
+      page++;
+    } catch (error) {
+      console.error(`Error fetching issues: ${error.message}`);
+      if (error.status === 403 && error.message.includes('rate limit')) {
+        const helpfulError = new Error(
+          'GitHub API rate limit exceeded. Without authentication, you\'re limited to 60 requests/hour.\n\n' +
+          '💡 Solution: Add a GitHub token to your .env file:\n' +
+          '   1. Create a token at https://github.com/settings/tokens\n' +
+          '   2. Select "public_repo" scope (read-only)\n' +
+          '   3. Add to .env: GITHUB_TOKEN=your_token_here\n' +
+          '   4. Restart the server\n\n' +
+          'With a token, you get 5,000 requests/hour!'
+        );
+        helpfulError.isRateLimit = true;
+        throw helpfulError;
+      }
+      throw error;
+    }
+  }
+
+  console.log(`Total updated issues fetched: ${updatedIssues.length}`);
+
+  if (updatedIssues.length === 0) {
+    console.log('No updates found');
+    return {
+      repo,
+      issuesCount: 0,
+      openIssuesCount: 0,
+      updatedIssuesCount: 0
+    };
+  }
+
+  // Save updated issues to database
+  for (let i = 0; i < updatedIssues.length; i++) {
+    db.saveIssue(repo.id, updatedIssues[i]);
+
+    if (onProgress && (i % 10 === 0 || i === updatedIssues.length - 1)) {
+      onProgress({ stage: 'saving', current: i + 1, total: updatedIssues.length });
+    }
+  }
+
+  // Fetch comments only for updated open issues
+  const openIssues = updatedIssues.filter(issue => issue.state === 'open');
+  console.log(`Fetching comments for ${openIssues.length} updated open issues...`);
+
+  for (let i = 0; i < openIssues.length; i++) {
+    const issue = openIssues[i];
+
+    if (issue.comments > 0) {
+      try {
+        const commentsResponse = await octokit.issues.listComments({
+          owner,
+          repo: name,
+          issue_number: issue.number,
+          per_page: 100
+        });
+
+        for (const comment of commentsResponse.data) {
+          db.saveComment(issue.id, comment);
+        }
+
+        console.log(`Fetched ${commentsResponse.data.length} comments for issue #${issue.number}`);
+      } catch (error) {
+        console.error(`Error fetching comments for issue #${issue.number}:`, error.message);
+      }
+    }
+
+    if (onProgress && (i % 5 === 0 || i === openIssues.length - 1)) {
+      onProgress({ stage: 'comments', current: i + 1, total: openIssues.length });
+    }
+  }
+
+  // Update sync timestamp
+  db.updateRepoSync(repo.id, null);
+
+  console.log(`Refresh complete: ${updatedIssues.length} issues updated, comments fetched for ${openIssues.length} open issues`);
+
+  return {
+    repo,
+    issuesCount: updatedIssues.length,
+    openIssuesCount: openIssues.length,
+    updatedIssuesCount: updatedIssues.length
+  };
+}
+
 module.exports = {
   syncRepository,
+  refreshRepository,
   getRepoInfo
 };

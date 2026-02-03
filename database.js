@@ -187,6 +187,11 @@ function getIssueCount(repoId, filters = {}) {
   return db.prepare(query).get(...params).count;
 }
 
+function getLastUpdatedTimestamp(repoId) {
+  const result = db.prepare('SELECT MAX(updated_at) as last_updated FROM issues WHERE repo_id = ?').get(repoId);
+  return result?.last_updated || null;
+}
+
 // Summary operations
 function saveSummary(issueId, summaryType, content) {
   const stmt = db.prepare(`
@@ -277,6 +282,7 @@ module.exports = {
   saveIssue,
   getIssues,
   getIssueCount,
+  getLastUpdatedTimestamp,
   saveSummary,
   getSummary,
   getIssuesWithSummaries,

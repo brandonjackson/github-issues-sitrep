@@ -11,6 +11,7 @@ const setRepoBtn = document.getElementById('set-repo-btn');
 const configError = document.getElementById('config-error');
 const repoNameDisplay = document.getElementById('repo-name');
 const changeRepoBtn = document.getElementById('change-repo-btn');
+const refreshBtn = document.getElementById('refresh-btn');
 const syncStatus = document.getElementById('sync-status');
 const progressSection = document.getElementById('progress-section');
 const progressStage = document.getElementById('progress-stage');
@@ -40,6 +41,8 @@ function setupEventListeners() {
     localStorage.removeItem('github_sitrep_repo');
     showConfigSection();
   });
+
+  refreshBtn.addEventListener('click', handleRefresh);
 
   sendBtn.addEventListener('click', handleSendMessage);
   userInput.addEventListener('keypress', (e) => {
@@ -200,6 +203,42 @@ async function startSync() {
   }
 }
 
+async function handleRefresh() {
+  if (isSyncing || !currentRepo) return;
+
+  isSyncing = true;
+  refreshBtn.disabled = true;
+  refreshBtn.classList.add('spinning');
+  setSyncStatus('syncing', 'Checking for updates...');
+  showProgress('Checking for updates...', 0);
+  disableStarterButtons(true);
+
+  try {
+    const response = await fetch('/api/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        owner: currentRepo.owner,
+        name: currentRepo.name
+      })
+    });
+
+    const data = await response.json();
+
+    // Poll for sync status (reuse existing polling)
+    pollSyncStatus();
+
+  } catch (error) {
+    console.error('Refresh error:', error);
+    setSyncStatus('error', 'Refresh failed');
+    hideProgress();
+    isSyncing = false;
+    refreshBtn.disabled = false;
+    refreshBtn.classList.remove('spinning');
+    disableStarterButtons(false);
+  }
+}
+
 async function pollSyncStatus() {
   const interval = setInterval(async () => {
     try {
@@ -215,15 +254,20 @@ async function pollSyncStatus() {
         updateProgress(stage, percentage);
       } else if (data.status === 'complete') {
         clearInterval(interval);
-        setSyncStatus('complete', `Ready! ${data.issuesCount} issues synced`);
+        const statusMessage = data.message || `Ready! ${data.issuesCount} issues synced`;
+        setSyncStatus('complete', statusMessage);
         hideProgress();
         isSyncing = false;
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('spinning');
         disableStarterButtons(false);
       } else if (data.status === 'error') {
         clearInterval(interval);
         showSyncError(data);
         hideProgress();
         isSyncing = false;
+        refreshBtn.disabled = false;
+        refreshBtn.classList.remove('spinning');
         disableStarterButtons(false);
       }
     } catch (error) {
