@@ -78,9 +78,19 @@ app.post('/api/sync', async (req, res) => {
     // Perform sync (includes fetching comments for open issues)
     const result = await githubSync.syncRepository(owner, name, (progress) => {
       const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+
+      let stageMessage = '';
+      if (progress.stage === 'issues') {
+        stageMessage = `Fetching all issues (${progress.current} fetched)`;
+      } else if (progress.stage === 'saving') {
+        stageMessage = `Saving issues (${progress.current}/${progress.total})`;
+      } else if (progress.stage === 'comments') {
+        stageMessage = `Fetching comments (${progress.current}/${progress.total} open issues)`;
+      }
+
       syncJobs.set(jobId, {
         status: 'fetching',
-        stage: `Fetching issues and comments (${progress.current}/${progress.total})`,
+        stage: stageMessage,
         progress,
         percentage
       });

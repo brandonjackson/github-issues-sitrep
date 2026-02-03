@@ -37,7 +37,7 @@ async function syncRepository(owner, name, onProgress) {
       console.log(`Fetched page ${page}: ${issues.length} issues (total: ${allIssues.length})`);
 
       if (onProgress) {
-        onProgress({ current: allIssues.length, total: allIssues.length });
+        onProgress({ stage: 'issues', current: allIssues.length, total: allIssues.length });
       }
 
       hasMore = response.data.length === 100;
@@ -73,13 +73,8 @@ async function syncRepository(owner, name, onProgress) {
     db.saveIssue(repo.id, allIssues[i]);
 
     if (onProgress && (i % 25 === 0 || i === allIssues.length - 1)) {
-      onProgress({ current: i + 1, total: totalIssues });
+      onProgress({ stage: 'saving', current: i + 1, total: totalIssues });
     }
-  }
-
-  // Final progress update
-  if (onProgress) {
-    onProgress({ current: totalIssues, total: totalIssues });
   }
 
   // Fetch comments for open issues
@@ -109,8 +104,8 @@ async function syncRepository(owner, name, onProgress) {
       }
     }
 
-    if (onProgress && i % 10 === 0) {
-      onProgress({ current: i, total: openIssues.length });
+    if (onProgress && (i % 5 === 0 || i === openIssues.length - 1)) {
+      onProgress({ stage: 'comments', current: i + 1, total: openIssues.length });
     }
   }
 
