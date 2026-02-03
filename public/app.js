@@ -79,12 +79,40 @@ async function checkHealth() {
   }
 }
 
-function loadSavedRepo() {
+async function loadSavedRepo() {
   const saved = localStorage.getItem('github_sitrep_repo');
   if (saved) {
-    currentRepo = JSON.parse(saved);
-    showChatSection();
-    checkSyncStatus();
+    const repo = JSON.parse(saved);
+
+    // Check if the repo still has local data
+    try {
+      const response = await fetch(`/api/repo/${repo.owner}/${repo.name}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        currentRepo = { owner: repo.owner, name: repo.name, ...data };
+        localStorage.setItem('github_sitrep_repo', JSON.stringify(currentRepo));
+        showChatSection();
+
+        // If no local data (e.g., after cache reset), trigger sync
+        if (!data.hasLocalData) {
+          setSyncStatus('syncing', 'No cached data found, syncing...');
+          startSync();
+        } else {
+          // Check for active sync or show ready state
+          checkSyncStatus();
+        }
+      } else {
+        // Repo no longer exists or is inaccessible
+        localStorage.removeItem('github_sitrep_repo');
+        currentRepo = null;
+      }
+    } catch (error) {
+      console.error('Error loading saved repo:', error);
+      currentRepo = repo;
+      showChatSection();
+      checkSyncStatus();
+    }
   }
 }
 
