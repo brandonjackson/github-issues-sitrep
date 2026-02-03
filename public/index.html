@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Sitrep</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1>🎯 GitHub Sitrep</h1>
+      <p class="tagline">AI-powered repository insights</p>
+    </header>
+
+    <!-- Repository Configuration (shown if no repo selected) -->
+    <div id="config-section" class="config-section">
+      <div class="config-card">
+        <h2>Configure Repository</h2>
+        <p>Enter a public GitHub repository to get started:</p>
+
+        <div class="repo-input">
+          <input
+            type="text"
+            id="repo-input"
+            placeholder="owner/repository (e.g., openfn/lightning)"
+            autocomplete="off"
+          />
+          <button id="set-repo-btn" class="primary-btn">Connect</button>
+        </div>
+
+        <div id="config-error" class="error-message"></div>
+
+        <div class="example-repos">
+          <p>Or try an example:</p>
+          <button class="example-btn" data-repo="openfn/lightning">openfn/lightning</button>
+          <button class="example-btn" data-repo="facebook/react">facebook/react</button>
+          <button class="example-btn" data-repo="microsoft/vscode">microsoft/vscode</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat Interface (shown after repo is configured) -->
+    <div id="chat-section" class="chat-section" style="display: none;">
+      <!-- Chat Header with Repo Info -->
+      <div class="chat-header">
+        <div class="repo-info">
+          <h2 id="repo-name">Repository</h2>
+          <button id="change-repo-btn" class="change-repo-btn">Change Repository</button>
+        </div>
+        <div id="sync-status" class="sync-status"></div>
+      </div>
+
+      <!-- Chat Messages -->
+      <div id="chat-messages" class="chat-messages">
+        <div class="welcome-message">
+          <h3>👋 Welcome to GitHub Sitrep!</h3>
+          <p>I'm here to help you understand what's happening in this repository. You can:</p>
+          <ul>
+            <li>Click the quick action buttons below</li>
+            <li>Ask me anything about the issues</li>
+            <li>Get insights on bugs, priorities, and development status</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Starter Buttons -->
+      <div id="starter-buttons" class="starter-buttons">
+        <button class="starter-btn" data-type="quick-sitrep">
+          <span class="btn-icon">⚡️</span>
+          <span class="btn-label">Quick Sitrep</span>
+        </button>
+        <button class="starter-btn" data-type="recent-bugs">
+          <span class="btn-icon">🚨</span>
+          <span class="btn-label">Recent Bugs</span>
+        </button>
+        <button class="starter-btn" data-type="zombie-tickets">
+          <span class="btn-icon">🧟</span>
+          <span class="btn-label">Zombie Tickets</span>
+        </button>
+      </div>
+
+      <!-- Chat Input -->
+      <div class="chat-input-container">
+        <div class="chat-input">
+          <textarea
+            id="user-input"
+            placeholder="Ask anything about the repository issues..."
+            rows="1"
+          ></textarea>
+          <button id="send-btn" class="send-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
