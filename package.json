@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "reset": "node reset-cache.js"
   },
   "keywords": ["github", "issues", "ai", "analysis", "sitrep"],
   "author": "",

@@ -175,8 +175,18 @@ Ensure the repository is public and the format is `owner/name`.
 ### Sync takes a long time
 First sync for large repos (1000+ issues) can take 2-3 minutes. Subsequent syncs are much faster.
 
-### Database issues
-Delete `sitrep.db` to reset the database and re-sync.
+### Reset cache / Database issues
+To clear all cached data and start fresh:
+```bash
+npm run reset
+```
+
+Or manually delete the database files:
+```bash
+rm sitrep.db sitrep.db-shm sitrep.db-wal
+```
+
+After resetting, the next sync will fetch fresh data from GitHub.
 
 ## 🤝 Contributing
 
