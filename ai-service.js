@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
+const severityConfig = require('./severity-config');
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -218,8 +219,10 @@ Provide a comprehensive, actionable answer. Include specific issue numbers when 
   }
 }
 
-// Batch summarize multiple issues in one API call
-async function summarizeBatch(issues) {
+// Batch summarize and triage multiple issues in one API call
+async function summarizeAndTriageBatch(issues, repoId) {
+  const severityScale = severityConfig.getSeverityScale(repoId);
+
   const issuesText = issues.map((issue, idx) => {
     let commentsText = '';
     if (issue.comments && issue.comments.length > 0) {
@@ -235,40 +238,61 @@ State: ${issue.state} | Labels: ${issue.labels ? issue.labels.map(l => l.name).j
 Body: ${issue.body ? issue.body.substring(0, 300) : 'No description'}${commentsText}`;
   }).join('\n\n---\n\n');
 
-  const prompt = `Summarize each of these GitHub issues in 1-2 concise sentences. Focus on the problem and current status.
-Return ONLY the summaries in order, one per line, starting with "Issue N: " where N is the issue number.
+  const prompt = `For each GitHub issue below, provide:
+1) A 1-2 sentence summary focusing on the problem and current status
+2) A severity assessment using this scale:
+
+${severityScale.scale_definition}
+
+Return ONLY in this exact format (one issue per line):
+Issue N | P# | Summary text
 
 ${issuesText}
 
-Summaries:`;
+Response:`;
 
   try {
     const response = await anthropic.messages.create({
       model: MODELS.indexing,
-      max_tokens: 300 * issues.length, // Scale with number of issues
+      max_tokens: 400 * issues.length, // Scale with number of issues
       messages: [{
         role: 'user',
         content: prompt
       }]
     });
 
-    const summariesText = response.content[0].text.trim();
-    const summaries = summariesText.split('\n').filter(line => line.trim());
+    const responseText = response.content[0].text.trim();
+    const lines = responseText.split('\n').filter(line => line.trim());
 
-    // Parse summaries back to individual issues
+    // Parse responses back to individual issues
     const results = [];
     for (let i = 0; i < issues.length; i++) {
-      const summaryLine = summaries[i] || '';
-      // Remove "Issue N: " prefix if present
-      const summary = summaryLine.replace(/^Issue \d+:\s*/, '').trim() || `${issues[i].title} - ${issues[i].state}`;
-      results.push(summary);
+      const line = lines[i] || '';
+      // Parse: "Issue N | P# | Summary"
+      const match = line.match(/Issue \d+\s*\|\s*(P\d+)\s*\|\s*(.+)$/);
+
+      if (match) {
+        results.push({
+          summary: match[2].trim(),
+          severity: match[1]
+        });
+      } else {
+        // Fallback if parsing fails
+        results.push({
+          summary: `${issues[i].title} - ${issues[i].state}`,
+          severity: 'P4'
+        });
+      }
     }
 
     return results;
   } catch (error) {
-    console.error('Error summarizing batch:', error.message);
-    // Fallback to basic summaries
-    return issues.map(issue => `${issue.title} - ${issue.state}`);
+    console.error('Error summarizing and triaging batch:', error.message);
+    // Fallback to basic summaries without severity
+    return issues.map(issue => ({
+      summary: `${issue.title} - ${issue.state}`,
+      severity: 'P4'
+    }));
   }
 }
 
@@ -314,22 +338,26 @@ async function generateMissingSummaries(repoId, onProgress) {
     batches.push(issuesToSummarize.slice(i, i + BATCH_SIZE));
   }
 
+  // Get repo from first issue to pass to summarizeAndTriageBatch
+  const repo = db.db.prepare('SELECT * FROM repos WHERE id = ?').get(repoId);
+
   // Process batches with concurrency limit
   for (let i = 0; i < batches.length; i += CONCURRENT_BATCHES) {
     const currentBatches = batches.slice(i, i + CONCURRENT_BATCHES);
 
     // Process these batches in parallel
     const results = await Promise.all(
-      currentBatches.map(batch => summarizeBatch(batch))
+      currentBatches.map(batch => summarizeAndTriageBatch(batch, repoId))
     );
 
-    // Save all summaries from this round
+    // Save all summaries and severities from this round
     for (let j = 0; j < results.length; j++) {
       const batch = currentBatches[j];
-      const summaries = results[j];
+      const batchResults = results[j];
 
       for (let k = 0; k < batch.length; k++) {
-        db.saveSummary(batch[k].id, 'quick', summaries[k]);
+        db.saveSummary(batch[k].id, 'quick', batchResults[k].summary);
+        db.updateIssueSeverity(batch[k].id, batchResults[k].severity);
         created++;
 
         if (onProgress) {

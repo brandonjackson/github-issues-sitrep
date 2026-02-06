@@ -32,6 +32,7 @@ function initDatabase() {
       comments_count INTEGER DEFAULT 0,
       is_bug INTEGER DEFAULT 0,
       is_stale INTEGER DEFAULT 0,
+      severity TEXT,
       html_url TEXT,
       FOREIGN KEY (repo_id) REFERENCES repos(id),
       UNIQUE(repo_id, number)
@@ -45,6 +46,16 @@ function initDatabase() {
       created_at INTEGER NOT NULL,
       FOREIGN KEY (issue_id) REFERENCES issues(id),
       UNIQUE(issue_id, summary_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS severity_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      repo_id INTEGER NOT NULL,
+      scale_definition TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (repo_id) REFERENCES repos(id),
+      UNIQUE(repo_id)
     );
 
     CREATE TABLE IF NOT EXISTS comments (
@@ -70,6 +81,7 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_issues_state ON issues(state);
     CREATE INDEX IF NOT EXISTS idx_issues_is_bug ON issues(is_bug);
     CREATE INDEX IF NOT EXISTS idx_issues_is_stale ON issues(is_stale);
+    CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity);
     CREATE INDEX IF NOT EXISTS idx_issues_updated_at ON issues(updated_at);
     CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at);
     CREATE INDEX IF NOT EXISTS idx_comments_issue_id ON comments(issue_id);
@@ -136,6 +148,11 @@ function detectStale(issue) {
   return daysSinceUpdate > 90 && issue.state === 'open';
 }
 
+function updateIssueSeverity(issueId, severity) {
+  const stmt = db.prepare('UPDATE issues SET severity = ? WHERE id = ?');
+  stmt.run(severity, issueId);
+}
+
 function getIssues(repoId, filters = {}) {
   let query = 'SELECT * FROM issues WHERE repo_id = ?';
   const params = [repoId];
@@ -153,6 +170,17 @@ function getIssues(repoId, filters = {}) {
   if (filters.is_stale !== undefined) {
     query += ' AND is_stale = ?';
     params.push(filters.is_stale ? 1 : 0);
+  }
+
+  if (filters.severity) {
+    query += ' AND severity = ?';
+    params.push(filters.severity);
+  }
+
+  if (filters.search) {
+    query += ' AND (title LIKE ? OR body LIKE ?)';
+    const searchPattern = `%${filters.search}%`;
+    params.push(searchPattern, searchPattern);
   }
 
   if (filters.limit) {
@@ -280,6 +308,7 @@ module.exports = {
   getRepo,
   updateRepoSync,
   saveIssue,
+  updateIssueSeverity,
   getIssues,
   getIssueCount,
   getLastUpdatedTimestamp,

@@ -4,6 +4,7 @@ const path = require('path');
 const db = require('./database');
 const githubSync = require('./github-sync');
 const aiService = require('./ai-service');
+const severityConfig = require('./severity-config');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -352,6 +353,114 @@ app.get('/api/stats/:owner/:name', (req, res) => {
     };
 
     res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get severity scale configuration
+app.get('/api/severity-scale/:owner/:name', (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    const scale = severityConfig.getSeverityScale(repo.id);
+    res.json(scale);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update severity scale configuration
+app.post('/api/severity-scale/:owner/:name', (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const { scale_definition } = req.body;
+
+    if (!scale_definition) {
+      return res.status(400).json({ error: 'scale_definition is required' });
+    }
+
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    severityConfig.setSeverityScale(repo.id, scale_definition);
+    res.json({ success: true, message: 'Severity scale updated' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get issues list with filters
+app.get('/api/issues/:owner/:name', (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const { state, severity, search, limit } = req.query;
+
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not synced yet' });
+    }
+
+    const filters = {};
+    if (state) filters.state = state;
+    if (severity) filters.severity = severity;
+    if (search) filters.search = search;
+    if (limit) filters.limit = parseInt(limit);
+
+    const issues = db.getIssuesWithSummaries(repo.id, filters);
+
+    res.json({ issues, total: issues.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get insights/statistics
+app.get('/api/insights/:owner/:name', (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not synced yet' });
+    }
+
+    // Overall stats
+    const stats = {
+      total: db.getIssueCount(repo.id),
+      open: db.getIssueCount(repo.id, { state: 'open' }),
+      closed: db.getIssueCount(repo.id, { state: 'closed' }),
+      bugs: db.getIssueCount(repo.id, { is_bug: true, state: 'open' }),
+      stale: db.getIssueCount(repo.id, { is_stale: true })
+    };
+
+    // Severity breakdown (only open issues)
+    const severityBreakdown = {};
+    const severityLevels = ['P0', 'P1', 'P2', 'P3', 'P4'];
+    for (const level of severityLevels) {
+      severityBreakdown[level] = db.getIssueCount(repo.id, { state: 'open', severity: level });
+    }
+
+    // Recent activity (issues updated in last 7 days)
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const allIssues = db.getIssues(repo.id);
+    const recentActivity = allIssues.filter(i => i.updated_at >= sevenDaysAgo).length;
+
+    res.json({
+      stats,
+      severityBreakdown,
+      recentActivity,
+      lastSynced: repo.last_synced
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

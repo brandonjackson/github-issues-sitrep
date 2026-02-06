@@ -2,10 +2,13 @@
 let currentRepo = null;
 let isSyncing = false;
 let isProcessing = false;
+let currentPage = 'chat';
+let allIssues = [];
+let filteredIssues = [];
 
 // DOM elements
 const configSection = document.getElementById('config-section');
-const chatSection = document.getElementById('chat-section');
+const appSection = document.getElementById('app-section');
 const repoInput = document.getElementById('repo-input');
 const setRepoBtn = document.getElementById('set-repo-btn');
 const configError = document.getElementById('config-error');
@@ -22,6 +25,8 @@ const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 const starterButtons = document.querySelectorAll('.starter-btn');
 const exampleButtons = document.querySelectorAll('.example-btn');
+const navItems = document.querySelectorAll('.nav-item');
+const pages = document.querySelectorAll('.page');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -67,6 +72,58 @@ function setupEventListeners() {
       handleSetRepo();
     });
   });
+
+  // Navigation
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const page = item.dataset.page;
+      switchPage(page);
+    });
+  });
+
+  // Issues page filters
+  const issuesSearch = document.getElementById('issues-search');
+  const stateFilter = document.getElementById('state-filter');
+  const severityFilter = document.getElementById('severity-filter');
+
+  if (issuesSearch) {
+    issuesSearch.addEventListener('input', () => filterIssues());
+  }
+  if (stateFilter) {
+    stateFilter.addEventListener('change', () => loadIssues()); // Reload from API when state changes
+  }
+  if (severityFilter) {
+    severityFilter.addEventListener('change', () => filterIssues());
+  }
+}
+
+function switchPage(page) {
+  currentPage = page;
+
+  // Update navigation
+  navItems.forEach(item => {
+    if (item.dataset.page === page) {
+      item.classList.add('active');
+    } else {
+      item.classList.remove('active');
+    }
+  });
+
+  // Update pages
+  pages.forEach(pageEl => {
+    if (pageEl.id === `${page}-page`) {
+      pageEl.classList.add('active');
+    } else {
+      pageEl.classList.remove('active');
+    }
+  });
+
+  // Load data for the page
+  if (page === 'issues') {
+    loadIssues();
+  } else if (page === 'insights') {
+    loadInsights();
+  }
 }
 
 async function checkHealth() {
@@ -432,7 +489,7 @@ function removeLoadingMessage() {
 
 function showConfigSection() {
   configSection.style.display = 'flex';
-  chatSection.style.display = 'none';
+  appSection.style.display = 'none';
   repoInput.value = '';
   setRepoBtn.disabled = false;
   setRepoBtn.textContent = 'Connect';
@@ -441,8 +498,194 @@ function showConfigSection() {
 
 function showChatSection() {
   configSection.style.display = 'none';
-  chatSection.style.display = 'flex';
+  appSection.style.display = 'flex';
   repoNameDisplay.textContent = `${currentRepo.owner}/${currentRepo.name}`;
+}
+
+async function loadIssues() {
+  const tbody = document.getElementById('issues-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="loading-cell"><div class="loading-spinner"></div>Loading issues...</td></tr>';
+
+  try {
+    const stateFilter = document.getElementById('state-filter').value || 'open';
+    const response = await fetch(`/api/issues/${currentRepo.owner}/${currentRepo.name}?state=${stateFilter}&limit=500`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load issues');
+    }
+
+    allIssues = data.issues;
+    filterIssues();
+  } catch (error) {
+    console.error('Error loading issues:', error);
+    tbody.innerHTML = `<tr><td colspan="6" class="loading-cell">Error loading issues: ${error.message}</td></tr>`;
+  }
+}
+
+function filterIssues() {
+  const searchTerm = document.getElementById('issues-search').value.toLowerCase();
+  const stateFilter = document.getElementById('state-filter').value;
+  const severityFilter = document.getElementById('severity-filter').value;
+
+  filteredIssues = allIssues.filter(issue => {
+    const matchesSearch = !searchTerm ||
+      issue.title.toLowerCase().includes(searchTerm) ||
+      (issue.summary && issue.summary.toLowerCase().includes(searchTerm));
+
+    const matchesSeverity = !severityFilter || issue.severity === severityFilter;
+
+    return matchesSearch && matchesSeverity;
+  });
+
+  renderIssues();
+}
+
+function renderIssues() {
+  const tbody = document.getElementById('issues-tbody');
+
+  if (filteredIssues.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No issues found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filteredIssues.map(issue => {
+    const issueUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${issue.number}`;
+    const severityClass = issue.severity ? `severity-${issue.severity}` : '';
+    const stateClass = `state-${issue.state}`;
+    const updatedDate = new Date(issue.updated_at).toLocaleDateString();
+
+    return `
+      <tr>
+        <td><span class="issue-number">#${issue.number}</span></td>
+        <td>${issue.severity ? `<span class="severity-badge ${severityClass}">${issue.severity}</span>` : '<span class="severity-badge">—</span>'}</td>
+        <td><a href="${issueUrl}" target="_blank" class="issue-title">${escapeHtml(issue.title)}</a></td>
+        <td><div class="issue-summary">${escapeHtml(issue.summary || 'No summary available')}</div></td>
+        <td><span class="state-badge ${stateClass}">${issue.state}</span></td>
+        <td><span class="issue-date">${updatedDate}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadInsights() {
+  const insightsContent = document.getElementById('insights-content');
+  insightsContent.innerHTML = '<div class="loading-cell"><div class="loading-spinner"></div>Loading insights...</div>';
+
+  try {
+    const response = await fetch(`/api/insights/${currentRepo.owner}/${currentRepo.name}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load insights');
+    }
+
+    renderInsights(data);
+  } catch (error) {
+    console.error('Error loading insights:', error);
+    insightsContent.innerHTML = `<div class="loading-cell">Error loading insights: ${error.message}</div>`;
+  }
+}
+
+function renderInsights(data) {
+  const { stats, severityBreakdown, recentActivity, lastSynced } = data;
+  const insightsContent = document.getElementById('insights-content');
+
+  const lastSyncedDate = new Date(lastSynced).toLocaleString();
+
+  // Calculate max count for severity bar scaling
+  const maxCount = Math.max(...Object.values(severityBreakdown), 1);
+
+  // Determine if P0-P2 issues exist (above no-ship threshold)
+  const criticalIssues = (severityBreakdown.P0 || 0) + (severityBreakdown.P1 || 0) + (severityBreakdown.P2 || 0);
+
+  insightsContent.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Issues</div>
+        <div class="stat-value">${stats.total}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Open Issues</div>
+        <div class="stat-value">${stats.open}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Closed Issues</div>
+        <div class="stat-value">${stats.closed}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Open Bugs</div>
+        <div class="stat-value">${stats.bugs}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Stale Issues</div>
+        <div class="stat-value">${stats.stale}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Recent Activity</div>
+        <div class="stat-value">${recentActivity}</div>
+        <div class="stat-label" style="margin-top: 0.5rem;">Last 7 days</div>
+      </div>
+    </div>
+
+    <div class="insights-section">
+      <h3>Severity Breakdown (Open Issues)</h3>
+      <p class="info-text">Issues are automatically classified by AI based on severity. P0-P2 are above the no-ship threshold.</p>
+
+      <div class="severity-bars">
+        ${renderSeverityBar('P0', severityBreakdown.P0 || 0, maxCount, '#ef4444')}
+        ${renderSeverityBar('P1', severityBreakdown.P1 || 0, maxCount, '#f59e0b')}
+        ${renderSeverityBar('P2', severityBreakdown.P2 || 0, maxCount, '#fbbf24')}
+
+        <div class="no-ship-line">⚠️ No-Ship Threshold</div>
+
+        ${renderSeverityBar('P3', severityBreakdown.P3 || 0, maxCount, '#3b82f6')}
+        ${renderSeverityBar('P4', severityBreakdown.P4 || 0, maxCount, '#9ca3af')}
+      </div>
+
+      ${criticalIssues > 0 ? `
+        <p class="info-text" style="margin-top: 1.5rem; color: var(--error);">
+          ⚠️ <strong>${criticalIssues} critical issue(s)</strong> are above the no-ship threshold and should be addressed before release.
+        </p>
+      ` : `
+        <p class="info-text" style="margin-top: 1.5rem; color: var(--success);">
+          ✓ No critical issues above the no-ship threshold. All P0-P2 issues have been resolved.
+        </p>
+      `}
+    </div>
+
+    <div class="insights-section">
+      <h3>Repository Health</h3>
+      <p class="info-text">
+        <strong>Last synced:</strong> ${lastSyncedDate}<br>
+        <strong>Open rate:</strong> ${stats.total > 0 ? Math.round((stats.open / stats.total) * 100) : 0}% of all issues are open<br>
+        <strong>Bug rate:</strong> ${stats.open > 0 ? Math.round((stats.bugs / stats.open) * 100) : 0}% of open issues are bugs<br>
+        <strong>Stale rate:</strong> ${stats.open > 0 ? Math.round((stats.stale / stats.open) * 100) : 0}% of issues haven't been updated in 90+ days
+      </p>
+    </div>
+  `;
+}
+
+function renderSeverityBar(level, count, maxCount, color) {
+  const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
+
+  return `
+    <div class="severity-bar-item">
+      <div class="severity-bar-label severity-${level}">${level}</div>
+      <div class="severity-bar-track">
+        <div class="severity-bar-fill severity-${level}" style="width: ${percentage}%; background: ${color};">
+          ${count > 0 ? count : ''}
+        </div>
+      </div>
+      <div class="severity-bar-count">${count}</div>
+    </div>
+  `;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function showError(message) {

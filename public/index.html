@@ -41,81 +41,188 @@
       </div>
     </div>
 
-    <!-- Chat Interface (shown after repo is configured) -->
-    <div id="chat-section" class="chat-section" style="display: none;">
-      <!-- Chat Header with Repo Info -->
-      <div class="chat-header">
-        <div class="repo-info">
+    <!-- Main App (shown after repo is configured) -->
+    <div id="app-section" class="app-section" style="display: none;">
+      <!-- Left Navigation -->
+      <nav class="side-nav">
+        <div class="nav-header">
           <h2 id="repo-name">Repository</h2>
-          <div class="repo-actions">
+          <button id="change-repo-btn" class="change-repo-btn" title="Change repository">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 11l3 3L22 4"></path>
+              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="nav-items">
+          <button class="nav-item active" data-page="chat">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+            </svg>
+            <span>Chat</span>
+          </button>
+          <button class="nav-item" data-page="issues">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 8v4M12 16h.01"></path>
+            </svg>
+            <span>Issues</span>
+          </button>
+          <button class="nav-item" data-page="insights">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3v18h18"></path>
+              <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path>
+            </svg>
+            <span>Insights</span>
+          </button>
+        </div>
+
+        <div class="nav-footer">
+          <div class="sync-info">
             <button id="refresh-btn" class="refresh-btn" title="Check for updates">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
               </svg>
               Refresh
             </button>
-            <button id="change-repo-btn" class="change-repo-btn">Change Repository</button>
+            <div id="sync-status" class="sync-status"></div>
           </div>
         </div>
-        <div id="sync-status" class="sync-status"></div>
-      </div>
+      </nav>
 
-      <!-- Progress Bar (shown during sync) -->
-      <div id="progress-section" class="progress-section" style="display: none;">
-        <div class="progress-info">
-          <span id="progress-stage">Loading...</span>
-          <span id="progress-percentage">0%</span>
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <!-- Progress Bar (shown during sync) -->
+        <div id="progress-section" class="progress-section" style="display: none;">
+          <div class="progress-info">
+            <span id="progress-stage">Loading...</span>
+            <span id="progress-percentage">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
         </div>
-        <div class="progress-bar">
-          <div id="progress-fill" class="progress-fill"></div>
-        </div>
-      </div>
 
-      <!-- Chat Messages -->
-      <div id="chat-messages" class="chat-messages">
-        <div class="welcome-message">
-          <h3>👋 Welcome to GitHub Sitrep!</h3>
-          <p>I'm here to help you understand what's happening in this repository. You can:</p>
-          <ul>
-            <li>Click the quick action buttons below</li>
-            <li>Ask me anything about the issues</li>
-            <li>Get insights on bugs, priorities, and development status</li>
-          </ul>
-        </div>
-      </div>
+        <!-- Chat Page -->
+        <div id="chat-page" class="page active">
+          <div class="chat-messages" id="chat-messages">
+            <div class="welcome-message">
+              <h3>👋 Welcome to GitHub Sitrep!</h3>
+              <p>I'm here to help you understand what's happening in this repository. You can:</p>
+              <ul>
+                <li>Click the quick action buttons below</li>
+                <li>Ask me anything about the issues</li>
+                <li>Get insights on bugs, priorities, and development status</li>
+              </ul>
+            </div>
+          </div>
 
-      <!-- Starter Buttons -->
-      <div id="starter-buttons" class="starter-buttons">
-        <button class="starter-btn" data-type="quick-sitrep">
-          <span class="btn-icon">⚡️</span>
-          <span class="btn-label">Quick Sitrep</span>
-        </button>
-        <button class="starter-btn" data-type="recent-bugs">
-          <span class="btn-icon">🚨</span>
-          <span class="btn-label">Recent Bugs</span>
-        </button>
-        <button class="starter-btn" data-type="zombie-tickets">
-          <span class="btn-icon">🧟</span>
-          <span class="btn-label">Zombie Tickets</span>
-        </button>
-      </div>
+          <div class="starter-buttons">
+            <button class="starter-btn" data-type="quick-sitrep">
+              <span class="btn-icon">⚡️</span>
+              <span class="btn-label">Quick Sitrep</span>
+            </button>
+            <button class="starter-btn" data-type="recent-bugs">
+              <span class="btn-icon">🚨</span>
+              <span class="btn-label">Recent Bugs</span>
+            </button>
+            <button class="starter-btn" data-type="zombie-tickets">
+              <span class="btn-icon">🧟</span>
+              <span class="btn-label">Zombie Tickets</span>
+            </button>
+          </div>
 
-      <!-- Chat Input -->
-      <div class="chat-input-container">
-        <div class="chat-input">
-          <textarea
-            id="user-input"
-            placeholder="Ask anything about the repository issues..."
-            rows="1"
-          ></textarea>
-          <button id="send-btn" class="send-btn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="22" y1="2" x2="11" y2="13"></line>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-          </button>
+          <div class="chat-input-container">
+            <div class="chat-input">
+              <textarea
+                id="user-input"
+                placeholder="Ask anything about the repository issues..."
+                rows="1"
+              ></textarea>
+              <button id="send-btn" class="send-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+
+        <!-- Issues Page -->
+        <div id="issues-page" class="page">
+          <div class="page-header">
+            <h2>Issues</h2>
+            <p class="page-subtitle">Browse and search issues with AI-powered summaries</p>
+          </div>
+
+          <div class="issues-controls">
+            <div class="search-box">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="M21 21l-4.35-4.35"></path>
+              </svg>
+              <input type="text" id="issues-search" placeholder="Search issues...">
+            </div>
+
+            <div class="filter-group">
+              <select id="state-filter" class="filter-select">
+                <option value="">All States</option>
+                <option value="open" selected>Open</option>
+                <option value="closed">Closed</option>
+              </select>
+
+              <select id="severity-filter" class="filter-select">
+                <option value="">All Severities</option>
+                <option value="P0">P0 - Urgent Risk</option>
+                <option value="P1">P1 - Critical</option>
+                <option value="P2">P2 - Major</option>
+                <option value="P3">P3 - Significant</option>
+                <option value="P4">P4 - Minor</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="issues-table-container">
+            <table class="issues-table">
+              <thead>
+                <tr>
+                  <th width="80">#</th>
+                  <th width="80">Severity</th>
+                  <th>Title</th>
+                  <th width="250">Summary</th>
+                  <th width="100">State</th>
+                  <th width="120">Updated</th>
+                </tr>
+              </thead>
+              <tbody id="issues-tbody">
+                <tr>
+                  <td colspan="6" class="loading-cell">
+                    <div class="loading-spinner"></div>
+                    Loading issues...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Insights Page -->
+        <div id="insights-page" class="page">
+          <div class="page-header">
+            <h2>Insights</h2>
+            <p class="page-subtitle">Repository statistics and trends</p>
+          </div>
+
+          <div id="insights-content" class="insights-content">
+            <div class="loading-cell">
+              <div class="loading-spinner"></div>
+              Loading insights...
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
 
