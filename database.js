@@ -81,11 +81,28 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_issues_state ON issues(state);
     CREATE INDEX IF NOT EXISTS idx_issues_is_bug ON issues(is_bug);
     CREATE INDEX IF NOT EXISTS idx_issues_is_stale ON issues(is_stale);
-    CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity);
     CREATE INDEX IF NOT EXISTS idx_issues_updated_at ON issues(updated_at);
     CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at);
     CREATE INDEX IF NOT EXISTS idx_comments_issue_id ON comments(issue_id);
   `);
+
+  // Migration: Add severity column if it doesn't exist
+  try {
+    const tableInfo = db.prepare('PRAGMA table_info(issues)').all();
+    const hasSeverity = tableInfo.some(col => col.name === 'severity');
+
+    if (!hasSeverity) {
+      console.log('Migrating database: Adding severity column...');
+      db.exec('ALTER TABLE issues ADD COLUMN severity TEXT');
+      console.log('Migration complete: severity column added');
+    }
+
+    // Create severity index after ensuring column exists
+    db.exec('CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity)');
+  } catch (error) {
+    console.error('Migration error:', error.message);
+    // If migration fails, log but don't crash - the app can still work without severity
+  }
 }
 
 // Repository operations
