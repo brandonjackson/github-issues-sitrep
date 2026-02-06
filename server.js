@@ -284,6 +284,104 @@ app.post('/api/refresh', async (req, res) => {
   }
 });
 
+// Refresh cache - regenerate all summaries
+app.post('/api/refresh-cache', async (req, res) => {
+  try {
+    const { owner, name } = req.body;
+
+    if (!owner || !name) {
+      return res.status(400).json({ error: 'Owner and name are required' });
+    }
+
+    const jobId = `${owner}/${name}`;
+
+    // Check if already syncing
+    if (syncJobs.has(jobId)) {
+      return res.json({ message: 'Sync already in progress', jobId });
+    }
+
+    // Get repo
+    const repo = db.getRepo(owner, name);
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not found. Please sync it first.' });
+    }
+
+    // Start cache refresh in background
+    syncJobs.set(jobId, {
+      status: 'summarizing',
+      stage: 'Clearing old summaries...',
+      progress: { current: 0, total: 0 },
+      percentage: 0
+    });
+
+    res.json({ message: 'Cache refresh started', jobId });
+
+    // Clear all summaries and severity
+    db.clearSummariesForRepo(repo.id);
+
+    // Get count of open issues
+    const openIssuesCount = db.getIssueCount(repo.id, { state: 'open' });
+
+    // Regenerate all summaries
+    if (openIssuesCount > 0) {
+      syncJobs.set(jobId, {
+        status: 'summarizing',
+        stage: `Regenerating AI summaries (0/${openIssuesCount})`,
+        progress: { current: 0, total: openIssuesCount },
+        percentage: 0
+      });
+
+      await aiService.generateMissingSummaries(repo.id, (progress) => {
+        const percentage = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+        syncJobs.set(jobId, {
+          status: 'summarizing',
+          stage: `Regenerating AI summaries (${progress.current}/${progress.total})`,
+          progress,
+          percentage
+        });
+      });
+    }
+
+    // Regenerate starter reports
+    syncJobs.set(jobId, {
+      status: 'generating-reports',
+      stage: 'Regenerating starter reports (1/3)',
+      progress: { current: 1, total: 3 },
+      percentage: 33
+    });
+
+    await aiService.generateAllStarterReports(repo.id, (progress) => {
+      const percentage = Math.round((progress.current / progress.total) * 100);
+      syncJobs.set(jobId, {
+        status: 'generating-reports',
+        stage: `Regenerating starter reports (${progress.current}/${progress.total})`,
+        progress,
+        percentage
+      });
+    });
+
+    // Complete
+    syncJobs.set(jobId, {
+      status: 'complete',
+      issuesCount: openIssuesCount,
+      message: `Regenerated summaries for ${openIssuesCount} issue(s)`,
+      completedAt: Date.now()
+    });
+
+    // Clean up after 5 minutes
+    setTimeout(() => syncJobs.delete(jobId), 300000);
+
+  } catch (error) {
+    const jobId = `${req.body.owner}/${req.body.name}`;
+    syncJobs.set(jobId, {
+      status: 'error',
+      error: error.message,
+      isRateLimit: error.isRateLimit || false
+    });
+    console.error('Refresh cache error:', error);
+  }
+});
+
 // Get starter report (cached)
 app.get('/api/report/:owner/:name/:type', async (req, res) => {
   try {

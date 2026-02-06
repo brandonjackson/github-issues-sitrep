@@ -251,6 +251,20 @@ function getSummary(issueId, summaryType) {
     .get(issueId, summaryType);
 }
 
+function clearSummariesForRepo(repoId) {
+  const stmt = db.prepare(`
+    DELETE FROM summaries
+    WHERE issue_id IN (SELECT id FROM issues WHERE repo_id = ?)
+  `);
+  stmt.run(repoId);
+
+  // Also clear severity for all issues
+  const clearSeverityStmt = db.prepare(`
+    UPDATE issues SET severity = NULL WHERE repo_id = ?
+  `);
+  clearSeverityStmt.run(repoId);
+}
+
 function getIssuesWithSummaries(repoId, filters = {}) {
   const issues = getIssues(repoId, filters);
   return issues.map(issue => {
@@ -331,6 +345,7 @@ module.exports = {
   getLastUpdatedTimestamp,
   saveSummary,
   getSummary,
+  clearSummariesForRepo,
   getIssuesWithSummaries,
   saveCachedReport,
   getCachedReport,

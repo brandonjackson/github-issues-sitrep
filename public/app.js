@@ -47,7 +47,38 @@ function setupEventListeners() {
     showConfigSection();
   });
 
+  // Refresh button and dropdown
   refreshBtn.addEventListener('click', handleRefresh);
+
+  const refreshDropdownToggle = document.getElementById('refresh-dropdown-toggle');
+  const refreshDropdownMenu = document.getElementById('refresh-dropdown-menu');
+
+  refreshDropdownToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    refreshDropdownMenu.classList.toggle('show');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.refresh-dropdown')) {
+      refreshDropdownMenu.classList.remove('show');
+    }
+  });
+
+  // Handle dropdown items
+  document.querySelectorAll('.dropdown-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      refreshDropdownMenu.classList.remove('show');
+      const action = item.dataset.action;
+
+      if (action === 'refresh') {
+        await handleRefresh();
+      } else if (action === 'refresh-cache') {
+        await handleRefreshCache();
+      }
+    });
+  });
 
   sendBtn.addEventListener('click', handleSendMessage);
   userInput.addEventListener('keypress', (e) => {
@@ -265,6 +296,7 @@ async function handleRefresh() {
 
   isSyncing = true;
   refreshBtn.disabled = true;
+  document.getElementById('refresh-dropdown-toggle').disabled = true;
   refreshBtn.classList.add('spinning');
   setSyncStatus('syncing', 'Checking for updates...');
   showProgress('Checking for updates...', 0);
@@ -291,6 +323,52 @@ async function handleRefresh() {
     hideProgress();
     isSyncing = false;
     refreshBtn.disabled = false;
+    document.getElementById('refresh-dropdown-toggle').disabled = false;
+    refreshBtn.classList.remove('spinning');
+    disableStarterButtons(false);
+  }
+}
+
+async function handleRefreshCache() {
+  if (isSyncing || !currentRepo) return;
+
+  const confirmed = confirm('This will recompute all AI summaries for this repository. This may take several minutes and consume API credits. Continue?');
+  if (!confirmed) return;
+
+  isSyncing = true;
+  refreshBtn.disabled = true;
+  document.getElementById('refresh-dropdown-toggle').disabled = true;
+  refreshBtn.classList.add('spinning');
+  setSyncStatus('syncing', 'Regenerating summaries...');
+  showProgress('Regenerating summaries...', 0);
+  disableStarterButtons(true);
+
+  try {
+    const response = await fetch('/api/refresh-cache', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        owner: currentRepo.owner,
+        name: currentRepo.name
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to refresh cache');
+    }
+
+    // Poll for sync status
+    pollSyncStatus();
+
+  } catch (error) {
+    console.error('Refresh cache error:', error);
+    setSyncStatus('error', 'Failed to refresh cache: ' + error.message);
+    hideProgress();
+    isSyncing = false;
+    refreshBtn.disabled = false;
+    document.getElementById('refresh-dropdown-toggle').disabled = false;
     refreshBtn.classList.remove('spinning');
     disableStarterButtons(false);
   }
@@ -316,6 +394,7 @@ async function pollSyncStatus() {
         hideProgress();
         isSyncing = false;
         refreshBtn.disabled = false;
+        document.getElementById('refresh-dropdown-toggle').disabled = false;
         refreshBtn.classList.remove('spinning');
         disableStarterButtons(false);
       } else if (data.status === 'error') {
@@ -324,6 +403,7 @@ async function pollSyncStatus() {
         hideProgress();
         isSyncing = false;
         refreshBtn.disabled = false;
+        document.getElementById('refresh-dropdown-toggle').disabled = false;
         refreshBtn.classList.remove('spinning');
         disableStarterButtons(false);
       }
