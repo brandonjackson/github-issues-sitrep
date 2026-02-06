@@ -3,20 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GitHub Sitrep</title>
+  <title>GitRep</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
-    <header class="header">
-      <h1>🎯 GitHub Sitrep</h1>
-      <p class="tagline">AI-powered repository insights</p>
-    </header>
-
     <!-- Repository Configuration (shown if no repo selected) -->
     <div id="config-section" class="config-section">
       <div class="config-card">
+        <div class="config-logo">
+          <span class="logo-icon">🎯</span>
+          <span class="logo-text">GitRep</span>
+        </div>
         <h2>Configure Repository</h2>
         <p>Enter a public GitHub repository to get started:</p>
 
@@ -45,6 +43,11 @@
     <div id="app-section" class="app-section" style="display: none;">
       <!-- Left Navigation -->
       <nav class="side-nav">
+        <div class="app-logo">
+          <span class="logo-icon">🎯</span>
+          <span class="logo-text">GitRep</span>
+        </div>
+
         <div class="nav-header">
           <h2 id="repo-name">Repository</h2>
           <button id="change-repo-btn" class="change-repo-btn" title="Change repository">
@@ -108,7 +111,7 @@
         <div id="chat-page" class="page active">
           <div class="chat-messages" id="chat-messages">
             <div class="welcome-message">
-              <h3>👋 Welcome to GitHub Sitrep!</h3>
+              <h3>👋 Welcome to GitRep!</h3>
               <p>I'm here to help you understand what's happening in this repository. You can:</p>
               <ul>
                 <li>Click the quick action buttons below</li>
