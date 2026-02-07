@@ -92,16 +92,27 @@ ${review.length > 0 ? `\nIn Review (${review.length}):\n${review.slice(0, 8).map
 ${openIssues.slice(0, 20).map(i => `#${i.number}: ${i.title} - ${i.summary || ''}`).join('\n')}
 
 **Instructions:**
-Write a concise PM-style status report using bullet points. Include:
+Write a concise PM-style status report using markdown formatting. Include:
 
-• **Status Overview** - Current state in 1-2 sentences
-• **In Progress** - What's actively being worked on (highlight key items)
-• **Ready to Start** - What's queued up next
-• **Blockers** - Any issues that are blocked/waiting (with reasons if apparent)
-• **Priorities** - Top 3-5 items that need attention
-• **Risks/Concerns** - Any patterns or issues that could impact delivery
+## Status Overview
+Current state in 1-2 sentences
 
-Use concise, actionable language. Focus on what matters to stakeholders. Keep total response to 4-5 paragraphs max.`;
+## In Progress
+What's actively being worked on (highlight key items)
+
+## Ready to Start
+What's queued up next
+
+## Blockers
+Any issues that are blocked/waiting (with reasons if apparent)
+
+## Priorities
+Top 3-5 items that need attention
+
+## Risks/Concerns
+Any patterns or issues that could impact delivery
+
+Use markdown formatting with headers, bold, bullet points, and issue links. Keep total response concise and actionable.`;
 
   } else if (reportType === 'recent-bugs') {
     relevantIssues = db.getIssuesWithSummaries(repoId, { is_bug: true, state: 'open', limit: 30 });
@@ -110,12 +121,18 @@ Use concise, actionable language. Focus on what matters to stakeholders. Keep to
 Open Bugs (${relevantIssues.length}):
 ${relevantIssues.map(i => `#${i.number}: ${i.title} - ${i.summary || ''}`).join('\n')}
 
-Provide:
-1. Overview of bug severity and themes
-2. Critical bugs that need immediate attention
-3. Common patterns or root causes
+Provide a report using markdown formatting with headers and bullet points:
 
-Keep it actionable (3-4 paragraphs).`;
+## Severity Overview
+Overview of bug severity and themes
+
+## Critical Bugs
+Bugs that need immediate attention (reference issue numbers)
+
+## Patterns & Root Causes
+Common patterns or root causes
+
+Keep it actionable and concise.`;
 
   } else if (reportType === 'zombie-tickets') {
     relevantIssues = db.getIssuesWithSummaries(repoId, { is_stale: true, state: 'open', limit: 30 });
@@ -124,12 +141,18 @@ Keep it actionable (3-4 paragraphs).`;
 Stale Issues (no activity for 90+ days):
 ${relevantIssues.map(i => `#${i.number}: ${i.title} - Last updated: ${new Date(i.updated_at).toLocaleDateString()} - ${i.summary || ''}`).join('\n')}
 
-Provide:
-1. Why these issues might be stale
-2. Which should be closed vs. revived
-3. Recommendations for cleanup
+Provide a report using markdown formatting with headers and bullet points:
 
-Keep it practical (3-4 paragraphs).`;
+## Why They're Stale
+Why these issues might be stale
+
+## Close vs. Revive
+Which should be closed vs. revived (reference issue numbers)
+
+## Cleanup Recommendations
+Actionable recommendations for cleanup
+
+Keep it practical and concise.`;
   }
 
   try {
@@ -200,7 +223,7 @@ URL: ${i.html_url}
 
 User Question: ${question}
 
-Provide a comprehensive, actionable answer. Include specific issue numbers when relevant (e.g., #123). Be direct and helpful.`;
+Provide a comprehensive, actionable answer using markdown formatting. Use headers, bullet points, bold text, and code blocks where appropriate. Include specific issue numbers when relevant (e.g., #123). Be direct and helpful.`;
 
   try {
     const response = await anthropic.messages.create({
