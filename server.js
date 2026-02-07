@@ -631,7 +631,7 @@ ${wipIssues.map((issue, i) => `${i + 1}. [#${issue.number}] ${issue.title}
    Assignee: ${issue.assignees ? JSON.parse(issue.assignees).join(', ') : 'Unassigned'}
    Sprint: ${issue.sprint || 'N/A'}`).join('\n\n')}
 
-Provide a brief overview in 3-5 bullet points of what's actively being developed. Focus on user-facing features and improvements. Start directly with bullet points, no preamble.`;
+Provide a brief overview in 3-5 bullet points of what's actively being developed using markdown formatting. Use bold text for emphasis and reference issue numbers. Focus on user-facing features and improvements. Start directly with bullet points, no preamble.`;
 
     const summary = await aiService.chat(summaryPrompt);
 

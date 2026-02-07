@@ -541,13 +541,25 @@ function addMessage(role, content) {
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
 
-  // Convert issue numbers to links
-  const linkedContent = content.replace(/#(\d+)/g, (match, number) => {
-    const url = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${number}`;
-    return `<a href="${url}" target="_blank">${match}</a>`;
-  });
+  if (role === 'assistant') {
+    // Convert issue numbers to markdown links before rendering
+    const linkedContent = content.replace(/#(\d+)/g, (match, number) => {
+      const url = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${number}`;
+      return `[${match}](${url})`;
+    });
 
-  contentDiv.innerHTML = linkedContent;
+    // Render markdown and sanitize
+    const rawHtml = marked.parse(linkedContent);
+    contentDiv.innerHTML = DOMPurify.sanitize(rawHtml);
+
+    // Open all links in new tabs
+    contentDiv.querySelectorAll('a').forEach(a => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+  } else {
+    contentDiv.textContent = content;
+  }
 
   messageDiv.appendChild(avatar);
   messageDiv.appendChild(contentDiv);
@@ -892,7 +904,7 @@ function renderWIP(data) {
     <div class="wip-summary">
       <div class="wip-section">
         <h3>🔨 What Engineers Are Building</h3>
-        <div class="wip-text">${escapeHtml(data.summary).replace(/\n/g, '<br>')}</div>
+        <div class="wip-text">${DOMPurify.sanitize(marked.parse(data.summary))}</div>
       </div>
 
       ${data.byEngineer && data.byEngineer.length > 0 ? `
