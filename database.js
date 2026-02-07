@@ -34,6 +34,9 @@ function initDatabase() {
       is_stale INTEGER DEFAULT 0,
       severity TEXT,
       html_url TEXT,
+      project_status TEXT,
+      sprint TEXT,
+      assignees TEXT,
       FOREIGN KEY (repo_id) REFERENCES repos(id),
       UNIQUE(repo_id, number)
     );
@@ -86,22 +89,41 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_comments_issue_id ON comments(issue_id);
   `);
 
-  // Migration: Add severity column if it doesn't exist
+  // Migrations: Add new columns if they don't exist
   try {
     const tableInfo = db.prepare('PRAGMA table_info(issues)').all();
-    const hasSeverity = tableInfo.some(col => col.name === 'severity');
+    const columnNames = tableInfo.map(col => col.name);
 
-    if (!hasSeverity) {
+    if (!columnNames.includes('severity')) {
       console.log('Migrating database: Adding severity column...');
       db.exec('ALTER TABLE issues ADD COLUMN severity TEXT');
       console.log('Migration complete: severity column added');
     }
 
-    // Create severity index after ensuring column exists
+    if (!columnNames.includes('project_status')) {
+      console.log('Migrating database: Adding project_status column...');
+      db.exec('ALTER TABLE issues ADD COLUMN project_status TEXT');
+      console.log('Migration complete: project_status column added');
+    }
+
+    if (!columnNames.includes('sprint')) {
+      console.log('Migrating database: Adding sprint column...');
+      db.exec('ALTER TABLE issues ADD COLUMN sprint TEXT');
+      console.log('Migration complete: sprint column added');
+    }
+
+    if (!columnNames.includes('assignees')) {
+      console.log('Migrating database: Adding assignees column...');
+      db.exec('ALTER TABLE issues ADD COLUMN assignees TEXT');
+      console.log('Migration complete: assignees column added');
+    }
+
+    // Create indexes after ensuring columns exist
     db.exec('CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_issues_project_status ON issues(project_status)');
   } catch (error) {
     console.error('Migration error:', error.message);
-    // If migration fails, log but don't crash - the app can still work without severity
+    // If migration fails, log but don't crash
   }
 }
 
@@ -122,15 +144,20 @@ function updateRepoSync(repoId, etag) {
 }
 
 // Issue operations
-function saveIssue(repoId, issue) {
+function saveIssue(repoId, issue, projectData = null) {
   const isBug = detectBug(issue);
   const isStale = detectStale(issue);
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO issues
-    (id, repo_id, number, title, state, labels, created_at, updated_at, author, body, comments_count, is_bug, is_stale, html_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, repo_id, number, title, state, labels, created_at, updated_at, author, body, comments_count, is_bug, is_stale, html_url, project_status, sprint, assignees)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+
+  // Extract assignees from issue
+  const assignees = issue.assignees && issue.assignees.length > 0
+    ? JSON.stringify(issue.assignees.map(a => a.login))
+    : null;
 
   stmt.run(
     issue.id,
@@ -146,7 +173,10 @@ function saveIssue(repoId, issue) {
     issue.comments,
     isBug ? 1 : 0,
     isStale ? 1 : 0,
-    issue.html_url
+    issue.html_url,
+    projectData?.status || null,
+    projectData?.sprint || null,
+    assignees
   );
 }
 
@@ -192,6 +222,21 @@ function getIssues(repoId, filters = {}) {
   if (filters.severity) {
     query += ' AND severity = ?';
     params.push(filters.severity);
+  }
+
+  if (filters.project_status) {
+    query += ' AND project_status = ?';
+    params.push(filters.project_status);
+  }
+
+  if (filters.sprint) {
+    query += ' AND sprint = ?';
+    params.push(filters.sprint);
+  }
+
+  if (filters.assignee) {
+    query += ' AND assignees LIKE ?';
+    params.push(`%"${filters.assignee}"%`);
   }
 
   if (filters.search) {

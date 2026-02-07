@@ -564,6 +564,102 @@ app.get('/api/insights/:owner/:name', (req, res) => {
   }
 });
 
+// Get WIP (Work In Progress) summary
+app.get('/api/wip/:owner/:name', async (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not synced yet' });
+    }
+
+    // Get all open issues with summaries
+    const issues = db.getIssuesWithSummaries(repo.id, { state: 'open' });
+
+    // Filter to only issues with project status indicating active work
+    // Common WIP statuses: "In Progress", "In Development", "Doing", "Active", etc.
+    const wipStatuses = ['in progress', 'in development', 'doing', 'active', 'started', 'wip'];
+    const wipIssues = issues.filter(issue => {
+      if (!issue.project_status) return false;
+      return wipStatuses.some(status => issue.project_status.toLowerCase().includes(status));
+    });
+
+    if (wipIssues.length === 0) {
+      return res.json({
+        summary: '',
+        byEngineer: []
+      });
+    }
+
+    // Group by assignee
+    const byEngineer = {};
+    wipIssues.forEach(issue => {
+      let assignees = [];
+      if (issue.assignees) {
+        try {
+          assignees = typeof issue.assignees === 'string' ? JSON.parse(issue.assignees) : issue.assignees;
+        } catch (e) {
+          assignees = [];
+        }
+      }
+
+      if (assignees.length === 0) {
+        // Unassigned issues
+        if (!byEngineer['Unassigned']) {
+          byEngineer['Unassigned'] = [];
+        }
+        byEngineer['Unassigned'].push(issue);
+      } else {
+        // Assigned issues
+        assignees.forEach(assignee => {
+          if (!byEngineer[assignee]) {
+            byEngineer[assignee] = [];
+          }
+          byEngineer[assignee].push(issue);
+        });
+      }
+    });
+
+    // Generate AI summary
+    const summaryPrompt = `You are a product manager reviewing what engineers are currently building. Based on the following open issues that are marked as "In Progress", create a concise bullet-point summary of what's being built.
+
+Issues in progress:
+${wipIssues.map((issue, i) => `${i + 1}. [#${issue.number}] ${issue.title}
+   Summary: ${issue.summary || 'No summary'}
+   Assignee: ${issue.assignees ? JSON.parse(issue.assignees).join(', ') : 'Unassigned'}
+   Sprint: ${issue.sprint || 'N/A'}`).join('\n\n')}
+
+Provide a brief overview in 3-5 bullet points of what's actively being developed. Focus on user-facing features and improvements. Start directly with bullet points, no preamble.`;
+
+    const summary = await aiService.chat(summaryPrompt);
+
+    // Format by engineer data
+    const byEngineerArray = Object.keys(byEngineer).map(assignee => ({
+      assignee,
+      issues: byEngineer[assignee].map(issue => ({
+        number: issue.number,
+        title: issue.title,
+        project_status: issue.project_status,
+        html_url: issue.html_url
+      }))
+    })).sort((a, b) => {
+      // Sort unassigned to the end
+      if (a.assignee === 'Unassigned') return 1;
+      if (b.assignee === 'Unassigned') return -1;
+      return a.assignee.localeCompare(b.assignee);
+    });
+
+    res.json({
+      summary,
+      byEngineer: byEngineerArray
+    });
+  } catch (error) {
+    console.error('WIP error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;

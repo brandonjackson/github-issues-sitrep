@@ -65,6 +65,12 @@
             </svg>
             <span>Chat</span>
           </button>
+          <button class="nav-item" data-page="wip">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+            <span>WIP</span>
+          </button>
           <button class="nav-item" data-page="issues">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
@@ -174,6 +180,21 @@
           </div>
         </div>
 
+        <!-- WIP Page -->
+        <div id="wip-page" class="page">
+          <div class="page-header">
+            <h2>Work In Progress</h2>
+            <p class="page-subtitle">What engineers are building right now</p>
+          </div>
+
+          <div id="wip-content" class="wip-content">
+            <div class="loading-cell">
+              <div class="loading-spinner"></div>
+              Loading WIP summary...
+            </div>
+          </div>
+        </div>
+
         <!-- Issues Page -->
         <div id="issues-page" class="page">
           <div class="page-header">
@@ -205,6 +226,18 @@
                 <option value="P3">P3 - Significant</option>
                 <option value="P4">P4 - Minor</option>
               </select>
+
+              <select id="status-filter" class="filter-select">
+                <option value="">All Statuses</option>
+              </select>
+
+              <select id="sprint-filter" class="filter-select">
+                <option value="">All Sprints</option>
+              </select>
+
+              <select id="assignee-filter" class="filter-select">
+                <option value="">All Assignees</option>
+              </select>
             </div>
           </div>
 
@@ -214,15 +247,18 @@
                 <tr>
                   <th width="80">#</th>
                   <th width="80">Severity</th>
+                  <th width="120">Status</th>
                   <th>Title</th>
-                  <th width="250">Summary</th>
-                  <th width="100">State</th>
-                  <th width="120">Updated</th>
+                  <th width="200">Summary</th>
+                  <th width="100">Sprint</th>
+                  <th width="120">Assignee</th>
+                  <th width="80">State</th>
+                  <th width="100">Updated</th>
                 </tr>
               </thead>
               <tbody id="issues-tbody">
                 <tr>
-                  <td colspan="6" class="loading-cell">
+                  <td colspan="9" class="loading-cell">
                     <div class="loading-spinner"></div>
                     Loading issues...
                   </td>

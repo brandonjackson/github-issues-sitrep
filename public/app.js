@@ -116,6 +116,9 @@ function setupEventListeners() {
   const issuesSearch = document.getElementById('issues-search');
   const stateFilter = document.getElementById('state-filter');
   const severityFilter = document.getElementById('severity-filter');
+  const statusFilter = document.getElementById('status-filter');
+  const sprintFilter = document.getElementById('sprint-filter');
+  const assigneeFilter = document.getElementById('assignee-filter');
 
   if (issuesSearch) {
     issuesSearch.addEventListener('input', () => filterIssues());
@@ -125,6 +128,15 @@ function setupEventListeners() {
   }
   if (severityFilter) {
     severityFilter.addEventListener('change', () => filterIssues());
+  }
+  if (statusFilter) {
+    statusFilter.addEventListener('change', () => filterIssues());
+  }
+  if (sprintFilter) {
+    sprintFilter.addEventListener('change', () => filterIssues());
+  }
+  if (assigneeFilter) {
+    assigneeFilter.addEventListener('change', () => filterIssues());
   }
 }
 
@@ -154,6 +166,8 @@ function switchPage(page) {
     loadIssues();
   } else if (page === 'insights') {
     loadInsights();
+  } else if (page === 'wip') {
+    loadWIP();
   }
 }
 
@@ -584,7 +598,7 @@ function showChatSection() {
 
 async function loadIssues() {
   const tbody = document.getElementById('issues-tbody');
-  tbody.innerHTML = '<tr><td colspan="6" class="loading-cell"><div class="loading-spinner"></div>Loading issues...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" class="loading-cell"><div class="loading-spinner"></div>Loading issues...</td></tr>';
 
   try {
     const stateFilter = document.getElementById('state-filter').value || 'open';
@@ -596,17 +610,80 @@ async function loadIssues() {
     }
 
     allIssues = data.issues;
+
+    // Populate filter dropdowns with unique values
+    populateFilterDropdowns();
+
     filterIssues();
   } catch (error) {
     console.error('Error loading issues:', error);
-    tbody.innerHTML = `<tr><td colspan="6" class="loading-cell">Error loading issues: ${error.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="loading-cell">Error loading issues: ${error.message}</td></tr>`;
   }
+}
+
+function populateFilterDropdowns() {
+  // Get unique statuses
+  const statuses = new Set();
+  const sprints = new Set();
+  const assignees = new Set();
+
+  allIssues.forEach(issue => {
+    if (issue.project_status) statuses.add(issue.project_status);
+    if (issue.sprint) sprints.add(issue.sprint);
+    if (issue.assignees) {
+      try {
+        const assigneesArray = typeof issue.assignees === 'string' ? JSON.parse(issue.assignees) : issue.assignees;
+        assigneesArray.forEach(a => assignees.add(a));
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+  });
+
+  // Populate status filter
+  const statusFilter = document.getElementById('status-filter');
+  const currentStatus = statusFilter.value;
+  statusFilter.innerHTML = '<option value="">All Statuses</option>';
+  Array.from(statuses).sort().forEach(status => {
+    const option = document.createElement('option');
+    option.value = status;
+    option.textContent = status;
+    if (status === currentStatus) option.selected = true;
+    statusFilter.appendChild(option);
+  });
+
+  // Populate sprint filter
+  const sprintFilter = document.getElementById('sprint-filter');
+  const currentSprint = sprintFilter.value;
+  sprintFilter.innerHTML = '<option value="">All Sprints</option>';
+  Array.from(sprints).sort().forEach(sprint => {
+    const option = document.createElement('option');
+    option.value = sprint;
+    option.textContent = sprint;
+    if (sprint === currentSprint) option.selected = true;
+    sprintFilter.appendChild(option);
+  });
+
+  // Populate assignee filter
+  const assigneeFilter = document.getElementById('assignee-filter');
+  const currentAssignee = assigneeFilter.value;
+  assigneeFilter.innerHTML = '<option value="">All Assignees</option>';
+  Array.from(assignees).sort().forEach(assignee => {
+    const option = document.createElement('option');
+    option.value = assignee;
+    option.textContent = assignee;
+    if (assignee === currentAssignee) option.selected = true;
+    assigneeFilter.appendChild(option);
+  });
 }
 
 function filterIssues() {
   const searchTerm = document.getElementById('issues-search').value.toLowerCase();
   const stateFilter = document.getElementById('state-filter').value;
   const severityFilter = document.getElementById('severity-filter').value;
+  const statusFilter = document.getElementById('status-filter').value;
+  const sprintFilter = document.getElementById('sprint-filter').value;
+  const assigneeFilter = document.getElementById('assignee-filter').value;
 
   filteredIssues = allIssues.filter(issue => {
     const matchesSearch = !searchTerm ||
@@ -614,8 +691,11 @@ function filterIssues() {
       (issue.summary && issue.summary.toLowerCase().includes(searchTerm));
 
     const matchesSeverity = !severityFilter || issue.severity === severityFilter;
+    const matchesStatus = !statusFilter || issue.project_status === statusFilter;
+    const matchesSprint = !sprintFilter || issue.sprint === sprintFilter;
+    const matchesAssignee = !assigneeFilter || (issue.assignees && issue.assignees.includes(assigneeFilter));
 
-    return matchesSearch && matchesSeverity;
+    return matchesSearch && matchesSeverity && matchesStatus && matchesSprint && matchesAssignee;
   });
 
   renderIssues();
@@ -625,7 +705,7 @@ function renderIssues() {
   const tbody = document.getElementById('issues-tbody');
 
   if (filteredIssues.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No issues found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No issues found</td></tr>';
     return;
   }
 
@@ -635,12 +715,26 @@ function renderIssues() {
     const stateClass = `state-${issue.state}`;
     const updatedDate = new Date(issue.updated_at).toLocaleDateString();
 
+    // Parse assignees (stored as JSON string)
+    let assigneeList = '—';
+    if (issue.assignees) {
+      try {
+        const assigneesArray = typeof issue.assignees === 'string' ? JSON.parse(issue.assignees) : issue.assignees;
+        assigneeList = assigneesArray.length > 0 ? assigneesArray.join(', ') : '—';
+      } catch (e) {
+        assigneeList = '—';
+      }
+    }
+
     return `
       <tr>
         <td><span class="issue-number">#${issue.number}</span></td>
         <td>${issue.severity ? `<span class="severity-badge ${severityClass}">${issue.severity}</span>` : '<span class="severity-badge">—</span>'}</td>
+        <td><span class="status-badge">${escapeHtml(issue.project_status || '—')}</span></td>
         <td><a href="${issueUrl}" target="_blank" class="issue-title">${escapeHtml(issue.title)}</a></td>
         <td><div class="issue-summary">${escapeHtml(issue.summary || 'No summary available')}</div></td>
+        <td><span class="sprint-badge">${escapeHtml(issue.sprint || '—')}</span></td>
+        <td><span class="assignee-badge">${assigneeList}</span></td>
         <td><span class="state-badge ${stateClass}">${issue.state}</span></td>
         <td><span class="issue-date">${updatedDate}</span></td>
       </tr>
@@ -758,6 +852,76 @@ function renderSeverityBar(level, count, maxCount, color) {
         </div>
       </div>
       <div class="severity-bar-count">${count}</div>
+    </div>
+  `;
+}
+
+async function loadWIP() {
+  const wipContent = document.getElementById('wip-content');
+  wipContent.innerHTML = '<div class="loading-cell"><div class="loading-spinner"></div>Loading WIP summary...</div>';
+
+  try {
+    const response = await fetch(`/api/wip/${currentRepo.owner}/${currentRepo.name}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load WIP data');
+    }
+
+    renderWIP(data);
+  } catch (error) {
+    console.error('Error loading WIP:', error);
+    wipContent.innerHTML = `<div class="loading-cell">Error loading WIP: ${error.message}</div>`;
+  }
+}
+
+function renderWIP(data) {
+  const wipContent = document.getElementById('wip-content');
+
+  if (!data.summary || data.summary.trim() === '') {
+    wipContent.innerHTML = `
+      <div class="empty-state">
+        <p>No work in progress found.</p>
+        <p class="info-text">Make sure your GitHub token has <code>read:project</code> scope and issues are added to a project board with Status fields.</p>
+      </div>
+    `;
+    return;
+  }
+
+  wipContent.innerHTML = `
+    <div class="wip-summary">
+      <div class="wip-section">
+        <h3>🔨 What Engineers Are Building</h3>
+        <div class="wip-text">${escapeHtml(data.summary).replace(/\n/g, '<br>')}</div>
+      </div>
+
+      ${data.byEngineer && data.byEngineer.length > 0 ? `
+        <div class="wip-section">
+          <h3>👥 By Engineer</h3>
+          <div class="engineer-list">
+            ${data.byEngineer.map(eng => `
+              <div class="engineer-item">
+                <div class="engineer-name">${escapeHtml(eng.assignee)}</div>
+                <ul class="engineer-tasks">
+                  ${eng.issues.map(issue => `
+                    <li>
+                      <a href="${issue.html_url}" target="_blank" class="issue-link">
+                        #${issue.number}
+                      </a>
+                      ${escapeHtml(issue.title)}
+                      ${issue.project_status ? `<span class="status-badge-inline">${escapeHtml(issue.project_status)}</span>` : ''}
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="wip-footer">
+        <p class="info-text">Last updated: ${new Date().toLocaleString()}</p>
+      </div>
     </div>
   `;
 }

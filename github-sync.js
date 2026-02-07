@@ -1,5 +1,6 @@
 const { Octokit } = require('@octokit/rest');
 const db = require('./database');
+const githubProjects = require('./github-projects');
 
 const octokit = new Octokit({
   auth: process.env.GITHUB_TOKEN || undefined
@@ -66,11 +67,18 @@ async function syncRepository(owner, name, onProgress) {
 
   console.log(`Total issues fetched: ${allIssues.length}`);
 
+  // Fetch project data (status, sprint) for issues
+  console.log('Fetching project data...');
+  const projectDataMap = await githubProjects.fetchProjectDataForRepo(owner, name);
+  console.log(`Project data fetched for ${projectDataMap.size} issues`);
+
   // Save issues to database
   const totalIssues = allIssues.length;
 
   for (let i = 0; i < allIssues.length; i++) {
-    db.saveIssue(repo.id, allIssues[i]);
+    const issue = allIssues[i];
+    const projectData = projectDataMap.get(issue.number);
+    db.saveIssue(repo.id, issue, projectData);
 
     if (onProgress && (i % 25 === 0 || i === allIssues.length - 1)) {
       onProgress({ stage: 'saving', current: i + 1, total: totalIssues });
@@ -240,9 +248,16 @@ async function refreshRepository(owner, name, onProgress) {
     };
   }
 
+  // Fetch project data for updated issues
+  console.log('Fetching project data for updated issues...');
+  const projectDataMap = await githubProjects.fetchProjectDataForRepo(owner, name);
+  console.log(`Project data fetched for ${projectDataMap.size} issues`);
+
   // Save updated issues to database
   for (let i = 0; i < updatedIssues.length; i++) {
-    db.saveIssue(repo.id, updatedIssues[i]);
+    const issue = updatedIssues[i];
+    const projectData = projectDataMap.get(issue.number);
+    db.saveIssue(repo.id, issue, projectData);
 
     if (onProgress && (i % 10 === 0 || i === updatedIssues.length - 1)) {
       onProgress({ stage: 'saving', current: i + 1, total: updatedIssues.length });
