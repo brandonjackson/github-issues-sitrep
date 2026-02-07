@@ -1,6 +1,7 @@
 const { Octokit } = require('@octokit/rest');
 const db = require('./database');
 const githubProjects = require('./github-projects');
+const authCheck = require('./github-auth-check');
 
 const octokit = new Octokit({
   auth: process.env.GITHUB_TOKEN || undefined
@@ -8,6 +9,14 @@ const octokit = new Octokit({
 
 async function syncRepository(owner, name, onProgress) {
   console.log(`Syncing repository: ${owner}/${name}`);
+
+  // Check GitHub token permissions
+  const permissionCheck = await authCheck.checkGitHubTokenPermissions();
+  authCheck.printPermissionStatus(permissionCheck);
+
+  if (!permissionCheck.hasRequiredScopes) {
+    throw new Error('GitHub token is missing required permissions. See console output above for details.');
+  }
 
   let repo = db.getRepo(owner, name);
   if (!repo) {
@@ -167,6 +176,14 @@ async function getRepoInfo(owner, name) {
 
 async function refreshRepository(owner, name, onProgress) {
   console.log(`Refreshing repository: ${owner}/${name}`);
+
+  // Check GitHub token permissions
+  const permissionCheck = await authCheck.checkGitHubTokenPermissions();
+  authCheck.printPermissionStatus(permissionCheck);
+
+  if (!permissionCheck.hasRequiredScopes) {
+    throw new Error('GitHub token is missing required permissions. See console output above for details.');
+  }
 
   let repo = db.getRepo(owner, name);
   if (!repo) {

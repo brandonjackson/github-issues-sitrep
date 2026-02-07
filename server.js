@@ -5,6 +5,7 @@ const db = require('./database');
 const githubSync = require('./github-sync');
 const aiService = require('./ai-service');
 const severityConfig = require('./severity-config');
+const authCheck = require('./github-auth-check');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -673,11 +674,11 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║             🚀 GitHub Sitrep is running!                 ║
+║             🚀 GitRep is running!                        ║
 ║                                                           ║
 ║  Open: http://localhost:${PORT}                            ║
 ║                                                           ║
@@ -686,4 +687,10 @@ app.listen(PORT, () => {
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
+
+  // Check GitHub token permissions on startup
+  if (process.env.GITHUB_TOKEN) {
+    const permissionCheck = await authCheck.checkGitHubTokenPermissions();
+    authCheck.printPermissionStatus(permissionCheck);
+  }
 });
