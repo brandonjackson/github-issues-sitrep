@@ -411,6 +411,11 @@ async function pollSyncStatus() {
         document.getElementById('refresh-dropdown-toggle').disabled = false;
         refreshBtn.classList.remove('spinning');
         disableStarterButtons(false);
+
+        // Reload current page data so user sees fresh results
+        if (currentPage === 'issues') loadIssues();
+        else if (currentPage === 'insights') loadInsights();
+        else if (currentPage === 'wip') loadWIP();
       } else if (data.status === 'error') {
         clearInterval(interval);
         showSyncError(data);
@@ -622,6 +627,18 @@ async function loadIssues() {
     }
 
     allIssues = data.issues;
+
+    // Diagnostic: log project data from API response
+    const withStatus = allIssues.filter(i => i.project_status);
+    const withSprint = allIssues.filter(i => i.sprint);
+    const withAssignees = allIssues.filter(i => i.assignees && i.assignees !== '[]');
+    console.log(`[loadIssues] ${allIssues.length} issues loaded. ${withStatus.length} with project_status, ${withSprint.length} with sprint, ${withAssignees.length} with assignees`);
+    if (withStatus.length > 0) {
+      console.log(`[loadIssues] Sample with status:`, withStatus[0].number, withStatus[0].project_status, withStatus[0].sprint);
+    } else if (allIssues.length > 0) {
+      console.log(`[loadIssues] First issue keys:`, Object.keys(allIssues[0]).join(', '));
+      console.log(`[loadIssues] First issue project_status:`, JSON.stringify(allIssues[0].project_status));
+    }
 
     // Populate filter dropdowns with unique values
     populateFilterDropdowns();
