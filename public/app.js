@@ -411,6 +411,11 @@ async function pollSyncStatus() {
         document.getElementById('refresh-dropdown-toggle').disabled = false;
         refreshBtn.classList.remove('spinning');
         disableStarterButtons(false);
+
+        // Reload current page data so user sees fresh results
+        if (currentPage === 'issues') loadIssues();
+        else if (currentPage === 'insights') loadInsights();
+        else if (currentPage === 'wip') loadWIP();
       } else if (data.status === 'error') {
         clearInterval(interval);
         showSyncError(data);
