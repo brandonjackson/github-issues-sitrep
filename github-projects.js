@@ -57,7 +57,7 @@ async function graphqlRequest(query, variables = {}) {
 }
 
 /**
- * Fetch project data for a repository's issues
+ * Fetch project data for a repository's issues (with pagination)
  */
 async function fetchProjectDataForRepo(owner, repo) {
   if (!GITHUB_TOKEN) {
@@ -67,9 +67,13 @@ async function fetchProjectDataForRepo(owner, repo) {
 
   try {
     const query = `
-      query($owner: String!, $repo: String!) {
+      query($owner: String!, $repo: String!, $cursor: String) {
         repository(owner: $owner, name: $repo) {
-          issues(first: 100, states: [OPEN]) {
+          issues(first: 100, states: [OPEN], after: $cursor) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
             nodes {
               number
               assignees(first: 10) {
@@ -110,65 +114,90 @@ async function fetchProjectDataForRepo(owner, repo) {
       }
     `;
 
-    const data = await graphqlRequest(query, { owner, repo });
-
     // Build a map of issue number -> project data
     const projectDataMap = new Map();
-
-    if (!data || !data.repository || !data.repository.issues) {
-      console.warn('GraphQL returned no project data — token may lack project read permissions');
-      return projectDataMap;
-    }
-
-    const issueNodes = data.repository.issues.nodes;
     let issuesWithProjectItems = 0;
     const allFieldNames = new Set();
+    let totalIssuesFetched = 0;
+    let cursor = null;
+    let pageCount = 0;
 
-    for (const issue of issueNodes) {
-      const projectData = {
-        status: null,
-        sprint: null
-      };
+    // Paginate through all open issues
+    while (true) {
+      pageCount++;
+      const data = await graphqlRequest(query, { owner, repo, cursor });
 
-      // Get first project item (most repos have one primary project)
-      if (issue.projectItems && issue.projectItems.nodes.length > 0) {
-        issuesWithProjectItems++;
-        const projectItem = issue.projectItems.nodes[0];
+      if (!data || !data.repository || !data.repository.issues) {
+        if (pageCount === 1) {
+          console.warn('GraphQL returned no project data — token may lack project read permissions');
+        }
+        break;
+      }
 
-        // Extract field values
-        if (projectItem.fieldValues && projectItem.fieldValues.nodes) {
-          for (const fieldValue of projectItem.fieldValues.nodes) {
-            if (!fieldValue.field) continue;
+      const issueNodes = data.repository.issues.nodes;
+      totalIssuesFetched += issueNodes.length;
 
-            const fieldName = fieldValue.field.name.toLowerCase();
-            allFieldNames.add(fieldValue.field.name);
+      for (const issue of issueNodes) {
+        const projectData = {
+          status: null,
+          sprint: null,
+          assignees: null
+        };
 
-            // Look for Status field
-            if (fieldName === 'status' && fieldValue.name) {
-              projectData.status = fieldValue.name;
-            }
+        // Extract assignees from GraphQL
+        if (issue.assignees && issue.assignees.nodes.length > 0) {
+          projectData.assignees = JSON.stringify(issue.assignees.nodes.map(a => a.login));
+        }
 
-            // Look for Sprint field
-            if (fieldName === 'sprint' && fieldValue.text) {
-              projectData.sprint = fieldValue.text;
-            } else if (fieldName === 'sprint' && fieldValue.name) {
-              projectData.sprint = fieldValue.name;
+        // Get first project item (most repos have one primary project)
+        if (issue.projectItems && issue.projectItems.nodes.length > 0) {
+          issuesWithProjectItems++;
+          const projectItem = issue.projectItems.nodes[0];
+
+          // Extract field values
+          if (projectItem.fieldValues && projectItem.fieldValues.nodes) {
+            for (const fieldValue of projectItem.fieldValues.nodes) {
+              if (!fieldValue.field) continue;
+
+              const fieldName = fieldValue.field.name.toLowerCase();
+              allFieldNames.add(fieldValue.field.name);
+
+              // Look for Status field
+              if (fieldName === 'status' && fieldValue.name) {
+                projectData.status = fieldValue.name;
+              }
+
+              // Look for Sprint field
+              if (fieldName === 'sprint' && fieldValue.text) {
+                projectData.sprint = fieldValue.text;
+              } else if (fieldName === 'sprint' && fieldValue.name) {
+                projectData.sprint = fieldValue.name;
+              }
             }
           }
         }
+
+        if (projectData.status || projectData.sprint || projectData.assignees) {
+          projectDataMap.set(issue.number, projectData);
+        }
       }
 
-      if (projectData.status || projectData.sprint) {
-        projectDataMap.set(issue.number, projectData);
+      // Check for next page
+      const pageInfo = data.repository.issues.pageInfo;
+      if (pageInfo.hasNextPage && pageInfo.endCursor) {
+        cursor = pageInfo.endCursor;
+        console.log(`GraphQL page ${pageCount}: ${issueNodes.length} issues (total: ${totalIssuesFetched})`);
+      } else {
+        break;
       }
     }
 
     // Diagnostic logging
-    console.log(`Project data: ${issueNodes.length} issues from GraphQL, ${issuesWithProjectItems} linked to projects, ${projectDataMap.size} with status/sprint`);
+    console.log(`Project data: ${totalIssuesFetched} issues from GraphQL (${pageCount} pages), ${issuesWithProjectItems} linked to projects, ${projectDataMap.size} with status/sprint/assignees`);
     if (allFieldNames.size > 0) {
       console.log(`Project field names found: ${Array.from(allFieldNames).join(', ')}`);
     }
-    if (issueNodes.length > 0 && issuesWithProjectItems === 0) {
+    if (totalIssuesFetched > 0 && issuesWithProjectItems === 0) {
       console.warn('No issues are linked to a GitHub Project. Add issues to a Project board to enable WIP tracking.');
     } else if (issuesWithProjectItems > 0 && projectDataMap.size === 0) {
       console.warn(`Issues are linked to projects but no "Status" or "Sprint" fields were found. Fields present: ${Array.from(allFieldNames).join(', ')}`);
