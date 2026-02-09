@@ -262,8 +262,23 @@ async function refreshRepository(owner, name, onProgress) {
   console.log(`Project data fetched for ${projectDataMap.size} issues`);
 
   // Apply project data to ALL issues from GraphQL
+  let projectRowsUpdated = 0;
   for (const [issueNumber, projectData] of projectDataMap) {
-    db.updateIssueProjectData(repo.id, issueNumber, projectData);
+    projectRowsUpdated += db.updateIssueProjectData(repo.id, issueNumber, projectData);
+  }
+  console.log(`Project data: wrote ${projectRowsUpdated} rows to DB (repo.id=${repo.id}, map had ${projectDataMap.size} entries)`);
+
+  // Verify data was persisted
+  const verifyResult = db.db.prepare(
+    'SELECT COUNT(*) as count FROM issues WHERE repo_id = ? AND project_status IS NOT NULL'
+  ).get(repo.id);
+  console.log(`Verification: ${verifyResult.count} issues in DB now have project_status`);
+  if (projectRowsUpdated === 0 && projectDataMap.size > 0) {
+    console.error('BUG: project data map had entries but 0 DB rows were updated! repo.id=' + repo.id);
+    const sampleIssue = db.db.prepare('SELECT id, repo_id, number FROM issues WHERE repo_id = ? LIMIT 1').get(repo.id);
+    console.error('Sample issue from DB:', sampleIssue);
+    const firstEntry = projectDataMap.entries().next().value;
+    console.error('First map entry: issue #' + firstEntry[0], firstEntry[1]);
   }
 
   if (updatedIssues.length === 0) {
