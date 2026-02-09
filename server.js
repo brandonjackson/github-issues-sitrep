@@ -667,6 +667,48 @@ Provide a brief overview in 3-5 bullet points of what's actively being developed
   }
 });
 
+// Debug endpoint - verify project data pipeline
+app.get('/api/debug/:owner/:name', (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not synced yet' });
+    }
+
+    // Direct DB queries to verify data
+    const totalIssues = db.db.prepare('SELECT COUNT(*) as c FROM issues WHERE repo_id = ?').get(repo.id).c;
+    const openIssues = db.db.prepare('SELECT COUNT(*) as c FROM issues WHERE repo_id = ? AND state = ?').get(repo.id, 'open').c;
+    const withStatus = db.db.prepare('SELECT COUNT(*) as c FROM issues WHERE repo_id = ? AND project_status IS NOT NULL').get(repo.id).c;
+    const withSprint = db.db.prepare('SELECT COUNT(*) as c FROM issues WHERE repo_id = ? AND sprint IS NOT NULL').get(repo.id).c;
+    const withAssignees = db.db.prepare('SELECT COUNT(*) as c FROM issues WHERE repo_id = ? AND assignees IS NOT NULL').get(repo.id).c;
+
+    // Sample issues with project data
+    const samples = db.db.prepare(
+      'SELECT number, project_status, sprint, assignees FROM issues WHERE repo_id = ? AND project_status IS NOT NULL LIMIT 5'
+    ).all(repo.id);
+
+    // Also test getIssuesWithSummaries (the actual API path)
+    const apiIssues = db.getIssuesWithSummaries(repo.id, { state: 'open', limit: 5 });
+    const apiSamples = apiIssues.map(i => ({
+      number: i.number,
+      project_status: i.project_status,
+      sprint: i.sprint,
+      assignees: i.assignees
+    }));
+
+    res.json({
+      repo: { id: repo.id, owner: repo.owner, name: repo.name },
+      counts: { totalIssues, openIssues, withStatus, withSprint, withAssignees },
+      dbSamples: samples,
+      apiPathSamples: apiSamples
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;

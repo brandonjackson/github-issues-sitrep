@@ -94,6 +94,14 @@ async function syncRepository(owner, name, onProgress) {
     }
   }
 
+  // Apply project data again via targeted UPDATE to ensure it persists
+  // (saveIssue uses INSERT OR REPLACE which can miss project data for issues
+  // not in the GraphQL result's first 100)
+  for (const [issueNumber, projectData] of projectDataMap) {
+    db.updateIssueProjectData(repo.id, issueNumber, projectData);
+  }
+  console.log(`Project data applied to ${projectDataMap.size} issues`);
+
   // Fetch comments for open issues
   const openIssues = allIssues.filter(issue => issue.state === 'open');
   console.log(`Fetching comments for ${openIssues.length} open issues...`);
@@ -255,31 +263,41 @@ async function refreshRepository(owner, name, onProgress) {
 
   console.log(`Total updated issues fetched: ${updatedIssues.length}`);
 
-  // Always fetch and apply project data, even if no issues were updated,
-  // since project status/sprint can change independently of issue updates
+  // Fetch project data for all open issues (status/sprint from GitHub Projects)
   console.log('Fetching project data...');
   const projectDataMap = await githubProjects.fetchProjectDataForRepo(owner, name);
   console.log(`Project data fetched for ${projectDataMap.size} issues`);
 
-  // Apply project data to ALL issues from GraphQL
+  // IMPORTANT: Save updated issues FIRST, then apply project data.
+  // saveIssue uses INSERT OR REPLACE which overwrites the entire row.
+  // If we applied project data first, saveIssue would overwrite it with null
+  // for any issue whose number isn't in the projectDataMap.
+  if (updatedIssues.length > 0) {
+    for (let i = 0; i < updatedIssues.length; i++) {
+      const issue = updatedIssues[i];
+      const projectData = projectDataMap.get(issue.number);
+      db.saveIssue(repo.id, issue, projectData);
+
+      if (onProgress && (i % 10 === 0 || i === updatedIssues.length - 1)) {
+        onProgress({ stage: 'saving', current: i + 1, total: updatedIssues.length });
+      }
+    }
+    console.log(`Saved ${updatedIssues.length} updated issues to DB`);
+  }
+
+  // Now apply project data to ALL issues from GraphQL.
+  // This runs AFTER saveIssue so it overwrites any stale values.
   let projectRowsUpdated = 0;
   for (const [issueNumber, projectData] of projectDataMap) {
     projectRowsUpdated += db.updateIssueProjectData(repo.id, issueNumber, projectData);
   }
   console.log(`Project data: wrote ${projectRowsUpdated} rows to DB (repo.id=${repo.id}, map had ${projectDataMap.size} entries)`);
 
-  // Verify data was persisted
+  // Verify data was persisted (runs AFTER both saveIssue and updateIssueProjectData)
   const verifyResult = db.db.prepare(
     'SELECT COUNT(*) as count FROM issues WHERE repo_id = ? AND project_status IS NOT NULL'
   ).get(repo.id);
   console.log(`Verification: ${verifyResult.count} issues in DB now have project_status`);
-  if (projectRowsUpdated === 0 && projectDataMap.size > 0) {
-    console.error('BUG: project data map had entries but 0 DB rows were updated! repo.id=' + repo.id);
-    const sampleIssue = db.db.prepare('SELECT id, repo_id, number FROM issues WHERE repo_id = ? LIMIT 1').get(repo.id);
-    console.error('Sample issue from DB:', sampleIssue);
-    const firstEntry = projectDataMap.entries().next().value;
-    console.error('First map entry: issue #' + firstEntry[0], firstEntry[1]);
-  }
 
   if (updatedIssues.length === 0) {
     console.log('No issue updates found');
@@ -290,17 +308,6 @@ async function refreshRepository(owner, name, onProgress) {
       openIssuesCount: 0,
       updatedIssuesCount: 0
     };
-  }
-
-  // Save updated issues to database
-  for (let i = 0; i < updatedIssues.length; i++) {
-    const issue = updatedIssues[i];
-    const projectData = projectDataMap.get(issue.number);
-    db.saveIssue(repo.id, issue, projectData);
-
-    if (onProgress && (i % 10 === 0 || i === updatedIssues.length - 1)) {
-      onProgress({ stage: 'saving', current: i + 1, total: updatedIssues.length });
-    }
   }
 
   // Fetch comments only for updated open issues
