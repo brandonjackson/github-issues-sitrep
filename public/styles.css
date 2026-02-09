@@ -976,6 +976,36 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.issues-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+
+.issues-table th.sortable:hover {
+  color: var(--text);
+}
+
+.issues-table th.sortable .sort-icon::after {
+  content: '\2195';
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  opacity: 0.4;
+}
+
+.issues-table th.sortable.sort-asc .sort-icon::after {
+  content: '\25B2';
+  opacity: 1;
+  color: var(--primary);
+}
+
+.issues-table th.sortable.sort-desc .sort-icon::after {
+  content: '\25BC';
+  opacity: 1;
+  color: var(--primary);
+}
+
 .issues-table td {
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border);
