@@ -73,6 +73,13 @@
             </svg>
             <span>WIP</span>
           </button>
+          <button class="nav-item" data-page="epics">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+              <line x1="4" y1="22" x2="4" y2="15"></line>
+            </svg>
+            <span>Epics</span>
+          </button>
           <button class="nav-item" data-page="issues">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
@@ -193,6 +200,21 @@
             <div class="loading-cell">
               <div class="loading-spinner"></div>
               Loading WIP summary...
+            </div>
+          </div>
+        </div>
+
+        <!-- Epics Page -->
+        <div id="epics-page" class="page">
+          <div class="page-header">
+            <h2>Epics</h2>
+            <p class="page-subtitle">Track progress on high-level initiatives and their subtasks</p>
+          </div>
+
+          <div id="epics-content" class="epics-content">
+            <div class="loading-cell">
+              <div class="loading-spinner"></div>
+              Loading epics...
             </div>
           </div>
         </div>
