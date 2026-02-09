@@ -667,6 +667,109 @@ Provide a brief overview in 3-5 bullet points of what's actively being developed
   }
 });
 
+// Get Epics - issues with task lists (subtasks)
+app.get('/api/epics/:owner/:name', async (req, res) => {
+  try {
+    const { owner, name } = req.params;
+    const repo = db.getRepo(owner, name);
+
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not synced yet' });
+    }
+
+    // Get all open issues with summaries
+    const issues = db.getIssuesWithSummaries(repo.id, { state: 'open' });
+
+    // Find epics: issues with task lists in body OR labeled as "epic"
+    const epics = [];
+    for (const issue of issues) {
+      const hasEpicLabel = issue.labels.some(l =>
+        /epic/i.test(l)
+      );
+
+      // Parse task list items from body: - [ ] or - [x]
+      const body = issue.body || '';
+      const taskPattern = /- \[([ xX])\]/g;
+      const tasks = [];
+      let match;
+      while ((match = taskPattern.exec(body)) !== null) {
+        tasks.push({ completed: match[1] !== ' ' });
+      }
+
+      const hasTaskList = tasks.length > 0;
+
+      if (hasEpicLabel || hasTaskList) {
+        const completedCount = tasks.filter(t => t.completed).length;
+        const totalCount = tasks.length;
+
+        epics.push({
+          number: issue.number,
+          title: issue.title,
+          html_url: issue.html_url,
+          state: issue.state,
+          labels: issue.labels,
+          summary: issue.summary,
+          severity: issue.severity,
+          assignees: issue.assignees,
+          project_status: issue.project_status,
+          updated_at: issue.updated_at,
+          created_at: issue.created_at,
+          subtasks: {
+            completed: completedCount,
+            total: totalCount,
+            percentage: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+          }
+        });
+      }
+    }
+
+    // Sort by most recently updated
+    epics.sort((a, b) => b.updated_at - a.updated_at);
+
+    // Generate LLM summary for what's left to do across all epics
+    let aiSummary = null;
+    if (epics.length > 0) {
+      const epicsSummaryInput = epics.slice(0, 20).map((epic, i) => {
+        const progress = epic.subtasks.total > 0
+          ? `${epic.subtasks.completed}/${epic.subtasks.total} subtasks done (${epic.subtasks.percentage}%)`
+          : 'No subtask checklist';
+        return `${i + 1}. [#${epic.number}] ${epic.title}
+   Progress: ${progress}
+   Summary: ${epic.summary || 'No summary'}
+   Status: ${epic.project_status || 'N/A'}`;
+      }).join('\n\n');
+
+      const prompt = `You are a project manager reviewing the status of epics (large initiatives) in a GitHub repository. Based on the following open epics and their subtask progress, provide a concise summary of the overall state of play.
+
+Epics:
+${epicsSummaryInput}
+
+Provide:
+1. A brief overall status (1-2 sentences)
+2. Which epics are closest to completion
+3. Which epics need the most attention
+4. Key risks or blockers if apparent
+
+Use markdown formatting with bold text and bullet points. Reference issue numbers. Be direct and concise. Start directly with the content, no preamble.`;
+
+      try {
+        aiSummary = await aiService.chat(prompt);
+      } catch (err) {
+        console.error('Error generating epics summary:', err.message);
+      }
+    }
+
+    res.json({
+      epics,
+      total: epics.length,
+      aiSummary
+    });
+  } catch (error) {
+    console.error('Epics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Debug endpoint - verify project data pipeline
 app.get('/api/debug/:owner/:name', (req, res) => {
   try {

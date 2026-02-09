@@ -185,6 +185,8 @@ function switchPage(page) {
     loadInsights();
   } else if (page === 'wip') {
     loadWIP();
+  } else if (page === 'epics') {
+    loadEpics();
   }
 }
 
@@ -433,6 +435,7 @@ async function pollSyncStatus() {
         if (currentPage === 'issues') loadIssues();
         else if (currentPage === 'insights') loadInsights();
         else if (currentPage === 'wip') loadWIP();
+        else if (currentPage === 'epics') loadEpics();
       } else if (data.status === 'error') {
         clearInterval(interval);
         showSyncError(data);
@@ -1025,6 +1028,132 @@ function renderWIP(data) {
 
       <div class="wip-footer">
         <p class="info-text">Last updated: ${new Date().toLocaleString()}</p>
+      </div>
+    </div>
+  `;
+}
+
+async function loadEpics() {
+  const epicsContent = document.getElementById('epics-content');
+  epicsContent.innerHTML = '<div class="loading-cell"><div class="loading-spinner"></div>Loading epics...</div>';
+
+  try {
+    const response = await fetch(`/api/epics/${currentRepo.owner}/${currentRepo.name}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to load epics');
+    }
+
+    renderEpics(data);
+  } catch (error) {
+    console.error('Error loading epics:', error);
+    epicsContent.innerHTML = `<div class="loading-cell">Error loading epics: ${error.message}</div>`;
+  }
+}
+
+function renderEpics(data) {
+  const epicsContent = document.getElementById('epics-content');
+
+  if (!data.epics || data.epics.length === 0) {
+    epicsContent.innerHTML = `
+      <div class="empty-state">
+        <p>No epics found.</p>
+        <p class="info-text">Epics are detected from issues that have task list checkboxes (<code>- [ ]</code>) in their body or are labeled with "epic".</p>
+      </div>
+    `;
+    return;
+  }
+
+  const epicCards = data.epics.map(epic => {
+    const progressPercent = epic.subtasks.percentage;
+    const progressColor = progressPercent === 100 ? 'var(--success)' :
+                          progressPercent >= 75 ? '#10b981' :
+                          progressPercent >= 50 ? 'var(--warning)' :
+                          progressPercent >= 25 ? '#f59e0b' :
+                          'var(--primary)';
+
+    const epicUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${epic.number}`;
+    const updatedDate = new Date(epic.updated_at).toLocaleDateString();
+
+    let assigneeList = '';
+    if (epic.assignees) {
+      try {
+        const assigneesArray = typeof epic.assignees === 'string' ? JSON.parse(epic.assignees) : epic.assignees;
+        assigneeList = assigneesArray.length > 0 ? assigneesArray.join(', ') : '';
+      } catch (e) {
+        assigneeList = '';
+      }
+    }
+
+    return `
+      <div class="epic-card">
+        <div class="epic-card-header">
+          <div class="epic-card-title-row">
+            <a href="${epicUrl}" target="_blank" class="epic-number">#${epic.number}</a>
+            <a href="${epicUrl}" target="_blank" class="epic-title">${escapeHtml(epic.title)}</a>
+          </div>
+          <div class="epic-card-meta">
+            ${epic.severity ? `<span class="severity-badge severity-${epic.severity}">${epic.severity}</span>` : ''}
+            ${epic.project_status ? `<span class="status-badge-inline">${escapeHtml(epic.project_status)}</span>` : ''}
+            ${assigneeList ? `<span class="epic-assignees">${escapeHtml(assigneeList)}</span>` : ''}
+            <span class="epic-date">Updated ${updatedDate}</span>
+          </div>
+        </div>
+
+        <div class="epic-progress-section">
+          <div class="epic-progress-header">
+            <span class="epic-progress-label">Subtasks</span>
+            <span class="epic-progress-count">${epic.subtasks.completed}/${epic.subtasks.total}${epic.subtasks.total > 0 ? ` (${progressPercent}%)` : ''}</span>
+          </div>
+          ${epic.subtasks.total > 0 ? `
+            <div class="epic-progress-bar">
+              <div class="epic-progress-fill" style="width: ${progressPercent}%; background: ${progressColor};"></div>
+            </div>
+          ` : `
+            <div class="epic-no-subtasks">No subtask checklist found</div>
+          `}
+        </div>
+
+        ${epic.summary ? `
+          <div class="epic-summary">
+            ${escapeHtml(epic.summary)}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const aiSummaryHtml = data.aiSummary ? `
+    <div class="epics-ai-summary">
+      <h3>State of Play</h3>
+      <div class="epics-ai-text">${DOMPurify.sanitize(marked.parse(data.aiSummary))}</div>
+    </div>
+  ` : '';
+
+  epicsContent.innerHTML = `
+    <div class="epics-layout">
+      ${aiSummaryHtml}
+      <div class="epics-stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Open Epics</div>
+          <div class="stat-value">${data.total}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Fully Complete</div>
+          <div class="stat-value">${data.epics.filter(e => e.subtasks.total > 0 && e.subtasks.percentage === 100).length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">In Progress</div>
+          <div class="stat-value">${data.epics.filter(e => e.subtasks.total > 0 && e.subtasks.percentage > 0 && e.subtasks.percentage < 100).length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Not Started</div>
+          <div class="stat-value">${data.epics.filter(e => e.subtasks.total > 0 && e.subtasks.percentage === 0).length}</div>
+        </div>
+      </div>
+      <div class="epics-list">
+        ${epicCards}
       </div>
     </div>
   `;
