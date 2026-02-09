@@ -517,6 +517,12 @@ app.get('/api/issues/:owner/:name', (req, res) => {
 
     const issues = db.getIssuesWithSummaries(repo.id, filters);
 
+    // Diagnostic: log sample issue to verify project data flows to API
+    if (issues.length > 0) {
+      const sample = issues.find(i => i.project_status) || issues[0];
+      console.log(`[API /issues] Returning ${issues.length} issues. Sample #${sample.number}: project_status=${sample.project_status}, sprint=${sample.sprint}, assignees=${sample.assignees}`);
+    }
+
     res.json({ issues, total: issues.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
