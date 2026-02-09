@@ -5,6 +5,8 @@ let isProcessing = false;
 let currentPage = 'chat';
 let allIssues = [];
 let filteredIssues = [];
+let sortColumn = 'number';
+let sortDirection = 'desc';
 
 // DOM elements
 const configSection = document.getElementById('config-section');
@@ -138,6 +140,21 @@ function setupEventListeners() {
   if (assigneeFilter) {
     assigneeFilter.addEventListener('change', () => filterIssues());
   }
+
+  // Sortable table headers
+  document.querySelectorAll('.issues-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const column = th.dataset.sort;
+      if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortColumn = column;
+        sortDirection = 'asc';
+      }
+      updateSortIndicators();
+      sortAndRenderIssues();
+    });
+  });
 }
 
 function switchPage(page) {
@@ -727,6 +744,64 @@ function filterIssues() {
     return matchesSearch && matchesSeverity && matchesStatus && matchesSprint && matchesAssignee;
   });
 
+  sortAndRenderIssues();
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('.issues-table th.sortable').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.sort === sortColumn) {
+      th.classList.add(sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+}
+
+function sortAndRenderIssues() {
+  const severityOrder = { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 };
+
+  filteredIssues.sort((a, b) => {
+    let valA, valB;
+
+    switch (sortColumn) {
+      case 'number':
+        valA = a.number;
+        valB = b.number;
+        break;
+      case 'severity':
+        valA = severityOrder[a.severity] !== undefined ? severityOrder[a.severity] : 999;
+        valB = severityOrder[b.severity] !== undefined ? severityOrder[b.severity] : 999;
+        break;
+      case 'updated_at':
+        valA = new Date(a.updated_at).getTime();
+        valB = new Date(b.updated_at).getTime();
+        break;
+      case 'assignees':
+        try {
+          const aArr = typeof a.assignees === 'string' ? JSON.parse(a.assignees) : (a.assignees || []);
+          valA = aArr.length > 0 ? aArr[0].toLowerCase() : '\uffff';
+        } catch (e) { valA = '\uffff'; }
+        try {
+          const bArr = typeof b.assignees === 'string' ? JSON.parse(b.assignees) : (b.assignees || []);
+          valB = bArr.length > 0 ? bArr[0].toLowerCase() : '\uffff';
+        } catch (e) { valB = '\uffff'; }
+        break;
+      default:
+        valA = (a[sortColumn] || '').toString().toLowerCase();
+        valB = (b[sortColumn] || '').toString().toLowerCase();
+        break;
+    }
+
+    let result;
+    if (typeof valA === 'number' && typeof valB === 'number') {
+      result = valA - valB;
+    } else {
+      result = valA < valB ? -1 : valA > valB ? 1 : 0;
+    }
+
+    return sortDirection === 'asc' ? result : -result;
+  });
+
+  updateSortIndicators();
   renderIssues();
 }
 
