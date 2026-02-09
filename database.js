@@ -204,7 +204,8 @@ function updateIssueProjectData(repoId, issueNumber, projectData) {
   const stmt = db.prepare(
     'UPDATE issues SET project_status = ?, sprint = ? WHERE repo_id = ? AND number = ?'
   );
-  stmt.run(projectData.status || null, projectData.sprint || null, repoId, issueNumber);
+  const result = stmt.run(projectData.status || null, projectData.sprint || null, repoId, issueNumber);
+  return result.changes;
 }
 
 function getIssues(repoId, filters = {}) {
