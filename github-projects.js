@@ -120,43 +120,58 @@ async function fetchProjectDataForRepo(owner, repo) {
       return projectDataMap;
     }
 
-    if (data && data.repository && data.repository.issues) {
-      for (const issue of data.repository.issues.nodes) {
-        const projectData = {
-          status: null,
-          sprint: null
-        };
+    const issueNodes = data.repository.issues.nodes;
+    let issuesWithProjectItems = 0;
+    const allFieldNames = new Set();
 
-        // Get first project item (most repos have one primary project)
-        if (issue.projectItems && issue.projectItems.nodes.length > 0) {
-          const projectItem = issue.projectItems.nodes[0];
+    for (const issue of issueNodes) {
+      const projectData = {
+        status: null,
+        sprint: null
+      };
 
-          // Extract field values
-          if (projectItem.fieldValues && projectItem.fieldValues.nodes) {
-            for (const fieldValue of projectItem.fieldValues.nodes) {
-              if (!fieldValue.field) continue;
+      // Get first project item (most repos have one primary project)
+      if (issue.projectItems && issue.projectItems.nodes.length > 0) {
+        issuesWithProjectItems++;
+        const projectItem = issue.projectItems.nodes[0];
 
-              const fieldName = fieldValue.field.name.toLowerCase();
+        // Extract field values
+        if (projectItem.fieldValues && projectItem.fieldValues.nodes) {
+          for (const fieldValue of projectItem.fieldValues.nodes) {
+            if (!fieldValue.field) continue;
 
-              // Look for Status field
-              if (fieldName === 'status' && fieldValue.name) {
-                projectData.status = fieldValue.name;
-              }
+            const fieldName = fieldValue.field.name.toLowerCase();
+            allFieldNames.add(fieldValue.field.name);
 
-              // Look for Sprint field
-              if (fieldName === 'sprint' && fieldValue.text) {
-                projectData.sprint = fieldValue.text;
-              } else if (fieldName === 'sprint' && fieldValue.name) {
-                projectData.sprint = fieldValue.name;
-              }
+            // Look for Status field
+            if (fieldName === 'status' && fieldValue.name) {
+              projectData.status = fieldValue.name;
+            }
+
+            // Look for Sprint field
+            if (fieldName === 'sprint' && fieldValue.text) {
+              projectData.sprint = fieldValue.text;
+            } else if (fieldName === 'sprint' && fieldValue.name) {
+              projectData.sprint = fieldValue.name;
             }
           }
         }
-
-        if (projectData.status || projectData.sprint) {
-          projectDataMap.set(issue.number, projectData);
-        }
       }
+
+      if (projectData.status || projectData.sprint) {
+        projectDataMap.set(issue.number, projectData);
+      }
+    }
+
+    // Diagnostic logging
+    console.log(`Project data: ${issueNodes.length} issues from GraphQL, ${issuesWithProjectItems} linked to projects, ${projectDataMap.size} with status/sprint`);
+    if (allFieldNames.size > 0) {
+      console.log(`Project field names found: ${Array.from(allFieldNames).join(', ')}`);
+    }
+    if (issueNodes.length > 0 && issuesWithProjectItems === 0) {
+      console.warn('No issues are linked to a GitHub Project. Add issues to a Project board to enable WIP tracking.');
+    } else if (issuesWithProjectItems > 0 && projectDataMap.size === 0) {
+      console.warn(`Issues are linked to projects but no "Status" or "Sprint" fields were found. Fields present: ${Array.from(allFieldNames).join(', ')}`);
     }
 
     return projectDataMap;
