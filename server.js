@@ -680,12 +680,14 @@ app.get('/api/epics/:owner/:name', async (req, res) => {
     // Get all open issues with summaries
     const issues = db.getIssuesWithSummaries(repo.id, { state: 'open' });
 
-    // Find epics: issues with task lists in body OR labeled as "epic"
+    // Find epics: issues labeled "epic"
     const epics = [];
     for (const issue of issues) {
       const hasEpicLabel = issue.labels.some(l =>
         /epic/i.test(l)
       );
+
+      if (!hasEpicLabel) continue;
 
       // Parse task list items from body: - [ ] or - [x]
       const body = issue.body || '';
@@ -696,9 +698,7 @@ app.get('/api/epics/:owner/:name', async (req, res) => {
         tasks.push({ completed: match[1] !== ' ' });
       }
 
-      const hasTaskList = tasks.length > 0;
-
-      if (hasEpicLabel || hasTaskList) {
+      {
         const completedCount = tasks.filter(t => t.completed).length;
         const totalCount = tasks.length;
 
