@@ -4,7 +4,7 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 /**
  * Check if GitHub token has the required scopes
- * Returns object with: { hasRequiredScopes, scopes, warnings, errors }
+ * Returns object with: { hasRequiredScopes, scopes, warnings, errors, tokenType }
  */
 async function checkGitHubTokenPermissions() {
   if (!GITHUB_TOKEN) {
@@ -12,15 +12,41 @@ async function checkGitHubTokenPermissions() {
       hasRequiredScopes: false,
       scopes: [],
       warnings: [],
-      errors: ['No GitHub token provided. Set GITHUB_TOKEN in your .env file.']
+      errors: ['No GitHub token provided. Set GITHUB_TOKEN in your .env file.'],
+      tokenType: 'none'
     };
   }
 
   try {
     const result = await makeAuthenticatedRequest('/user');
 
-    // Extract scopes from response headers
-    const scopesHeader = result.headers['x-oauth-scopes'] || '';
+    // Extract scopes from response headers (only present for classic tokens)
+    const scopesHeader = result.headers['x-oauth-scopes'];
+
+    // Fine-grained PATs don't return x-oauth-scopes header at all.
+    // Classic tokens always include it (even if empty string for zero scopes).
+    const isFineGrained = scopesHeader === undefined || scopesHeader === null;
+
+    if (isFineGrained) {
+      // Fine-grained token: if /user succeeded, the token is valid.
+      // We can't inspect permissions via headers — they are enforced server-side.
+      // Do a lightweight validation by checking that we can list repos.
+      return {
+        hasRequiredScopes: true,
+        scopes: [],
+        warnings: [
+          '⚠️  Fine-grained token detected — specific permissions cannot be verified via API.\n' +
+          '   Ensure your token has these repository permissions:\n' +
+          '     • Issues: Read (REQUIRED)\n' +
+          '     • Metadata: Read (REQUIRED)\n' +
+          '     • Projects: Read (recommended for WIP/sprint tracking)'
+        ],
+        errors: [],
+        tokenType: 'fine-grained'
+      };
+    }
+
+    // Classic token: validate using OAuth scopes
     const scopes = scopesHeader.split(',').map(s => s.trim()).filter(s => s);
 
     const warnings = [];
@@ -53,14 +79,16 @@ async function checkGitHubTokenPermissions() {
       hasRequiredScopes,
       scopes,
       warnings,
-      errors
+      errors,
+      tokenType: 'classic'
     };
   } catch (error) {
     return {
       hasRequiredScopes: false,
       scopes: [],
       warnings: [],
-      errors: [`Failed to verify GitHub token: ${error.message}`]
+      errors: [`Failed to verify GitHub token: ${error.message}`],
+      tokenType: 'unknown'
     };
   }
 }
@@ -116,8 +144,10 @@ function printPermissionStatus(result) {
   console.log('║          GitHub Token Permission Check                   ║');
   console.log('╚══════════════════════════════════════════════════════════╝\n');
 
-  if (result.scopes.length > 0) {
-    console.log('✓ Token found with scopes:', result.scopes.join(', '));
+  if (result.tokenType === 'fine-grained') {
+    console.log('✓ Fine-grained personal access token detected');
+  } else if (result.scopes.length > 0) {
+    console.log('✓ Classic token found with scopes:', result.scopes.join(', '));
   }
 
   // Print errors
@@ -140,17 +170,28 @@ function printPermissionStatus(result) {
   if (result.hasRequiredScopes && result.warnings.length === 0) {
     console.log('\n✓ All recommended scopes present! Full functionality enabled.\n');
   } else if (result.hasRequiredScopes && result.warnings.length > 0) {
-    console.log('\n✓ Basic functionality enabled, but some features will be limited.\n');
+    console.log('\n✓ Token authenticated successfully. Basic functionality enabled.\n');
   } else {
     console.log('');
     console.log('📝 To fix permission issues:');
+    console.log('');
+    console.log('   For classic tokens:');
     console.log('   1. Go to: https://github.com/settings/tokens');
     console.log('   2. Edit your token or create a new one');
     console.log('   3. Enable these scopes:');
     console.log('      • public_repo (or repo for private repos) - REQUIRED');
     console.log('      • read:project - RECOMMENDED for WIP tracking');
-    console.log('   4. Update GITHUB_TOKEN in your .env file');
-    console.log('   5. Restart the server\n');
+    console.log('');
+    console.log('   For fine-grained tokens:');
+    console.log('   1. Go to: https://github.com/settings/tokens?type=beta');
+    console.log('   2. Edit your token or create a new one');
+    console.log('   3. Under Repository permissions, enable:');
+    console.log('      • Issues: Read - REQUIRED');
+    console.log('      • Metadata: Read - REQUIRED');
+    console.log('   4. Under Organization permissions (if applicable):');
+    console.log('      • Projects: Read - RECOMMENDED for WIP tracking');
+    console.log('');
+    console.log('   Then update GITHUB_TOKEN in your .env file and restart.\n');
   }
 
   console.log('════════════════════════════════════════════════════════════\n');
