@@ -255,8 +255,20 @@ async function refreshRepository(owner, name, onProgress) {
 
   console.log(`Total updated issues fetched: ${updatedIssues.length}`);
 
+  // Always fetch and apply project data, even if no issues were updated,
+  // since project status/sprint can change independently of issue updates
+  console.log('Fetching project data...');
+  const projectDataMap = await githubProjects.fetchProjectDataForRepo(owner, name);
+  console.log(`Project data fetched for ${projectDataMap.size} issues`);
+
+  // Apply project data to ALL issues from GraphQL
+  for (const [issueNumber, projectData] of projectDataMap) {
+    db.updateIssueProjectData(repo.id, issueNumber, projectData);
+  }
+
   if (updatedIssues.length === 0) {
-    console.log('No updates found');
+    console.log('No issue updates found');
+    db.updateRepoSync(repo.id, null);
     return {
       repo,
       issuesCount: 0,
@@ -264,11 +276,6 @@ async function refreshRepository(owner, name, onProgress) {
       updatedIssuesCount: 0
     };
   }
-
-  // Fetch project data for all open issues (GraphQL returns all, not just updated)
-  console.log('Fetching project data...');
-  const projectDataMap = await githubProjects.fetchProjectDataForRepo(owner, name);
-  console.log(`Project data fetched for ${projectDataMap.size} issues`);
 
   // Save updated issues to database
   for (let i = 0; i < updatedIssues.length; i++) {
@@ -279,11 +286,6 @@ async function refreshRepository(owner, name, onProgress) {
     if (onProgress && (i % 10 === 0 || i === updatedIssues.length - 1)) {
       onProgress({ stage: 'saving', current: i + 1, total: updatedIssues.length });
     }
-  }
-
-  // Apply project data to ALL issues from GraphQL, not just the updated ones
-  for (const [issueNumber, projectData] of projectDataMap) {
-    db.updateIssueProjectData(repo.id, issueNumber, projectData);
   }
 
   // Fetch comments only for updated open issues
