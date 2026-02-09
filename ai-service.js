@@ -426,10 +426,25 @@ async function generateAllStarterReports(repoId, onProgress) {
   console.log('All starter reports generated');
 }
 
+// Simple chat helper used by WIP endpoint for summary generation
+async function chat(prompt) {
+  const response = await anthropic.messages.create({
+    model: MODELS.indexing,
+    max_tokens: 1200,
+    messages: [{
+      role: 'user',
+      content: prompt
+    }]
+  });
+
+  return response.content[0].text.trim();
+}
+
 module.exports = {
   summarizeIssue,
   generateStarterReport,
   answerQuestion,
   generateMissingSummaries,
-  generateAllStarterReports
+  generateAllStarterReports,
+  chat
 };

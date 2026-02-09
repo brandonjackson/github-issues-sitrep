@@ -30,6 +30,10 @@ async function graphqlRequest(query, variables = {}) {
 
       res.on('end', () => {
         try {
+          if (res.statusCode !== 200) {
+            reject(new Error(`GitHub GraphQL API returned ${res.statusCode}: ${body}`));
+            return;
+          }
           const response = JSON.parse(body);
           if (response.errors) {
             console.error('GraphQL errors:', response.errors);
@@ -110,6 +114,11 @@ async function fetchProjectDataForRepo(owner, repo) {
 
     // Build a map of issue number -> project data
     const projectDataMap = new Map();
+
+    if (!data || !data.repository || !data.repository.issues) {
+      console.warn('GraphQL returned no project data — token may lack project read permissions');
+      return projectDataMap;
+    }
 
     if (data && data.repository && data.repository.issues) {
       for (const issue of data.repository.issues.nodes) {
