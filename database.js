@@ -200,6 +200,13 @@ function updateIssueSeverity(issueId, severity) {
   stmt.run(severity, issueId);
 }
 
+function updateIssueProjectData(repoId, issueNumber, projectData) {
+  const stmt = db.prepare(
+    'UPDATE issues SET project_status = ?, sprint = ? WHERE repo_id = ? AND number = ?'
+  );
+  stmt.run(projectData.status || null, projectData.sprint || null, repoId, issueNumber);
+}
+
 function getIssues(repoId, filters = {}) {
   let query = 'SELECT * FROM issues WHERE repo_id = ?';
   const params = [repoId];
@@ -385,6 +392,7 @@ module.exports = {
   updateRepoSync,
   saveIssue,
   updateIssueSeverity,
+  updateIssueProjectData,
   getIssues,
   getIssueCount,
   getLastUpdatedTimestamp,
