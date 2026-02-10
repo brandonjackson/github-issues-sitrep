@@ -560,11 +560,66 @@ app.get('/api/insights/:owner/:name', (req, res) => {
     const allIssues = db.getIssues(repo.id);
     const recentActivity = allIssues.filter(i => i.updated_at >= sevenDaysAgo).length;
 
+    // Word cloud data from issue titles and labels
+    const stopWords = new Set([
+      'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'of', 'with', 'by', 'from', 'is', 'it', 'as', 'be', 'are', 'was',
+      'were', 'been', 'has', 'have', 'had', 'do', 'does', 'did', 'will',
+      'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'not',
+      'no', 'nor', 'so', 'if', 'then', 'than', 'that', 'this', 'these',
+      'those', 'i', 'we', 'you', 'he', 'she', 'they', 'me', 'us', 'him',
+      'her', 'them', 'my', 'our', 'your', 'his', 'its', 'their', 'what',
+      'which', 'who', 'whom', 'when', 'where', 'why', 'how', 'all', 'each',
+      'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such',
+      'only', 'own', 'same', 'also', 'just', 'about', 'above', 'after',
+      'again', 'any', 'because', 'before', 'being', 'below', 'between',
+      'during', 'further', 'here', 'into', 'once', 'out', 'over', 'under',
+      'until', 'up', 'very', 'while', 'there', 'through', 'too', 'don',
+      'doesn', 'didn', 'won', 'shouldn', 'couldn', 'wouldn', 'isn', 'aren',
+      'wasn', 'weren', 'hasn', 'haven', 'hadn', 'get', 'got', 'make',
+      'new', 'use', 'using', 'used', 'need', 'needs', 'way', 'via', 'vs',
+      'etc', 'eg', 'ie', 'de', 'le', 'la', 'el', 'en', 'es', 'et',
+    ]);
+
+    const wordCounts = {};
+    const openIssues = allIssues.filter(i => i.state === 'open');
+
+    for (const issue of openIssues) {
+      // Extract words from title
+      const words = issue.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !stopWords.has(w) && !/^\d+$/.test(w));
+
+      for (const word of words) {
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+      }
+
+      // Extract labels
+      try {
+        const labels = JSON.parse(issue.labels || '[]');
+        for (const label of labels) {
+          const labelKey = label.toLowerCase();
+          wordCounts[labelKey] = (wordCounts[labelKey] || 0) + 2; // Weight labels higher
+        }
+      } catch (e) {
+        // skip malformed labels
+      }
+    }
+
+    // Sort by count and take top 60 words
+    const wordcloud = Object.entries(wordCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 60)
+      .map(([text, count]) => ({ text, count }));
+
     res.json({
       stats,
       severityBreakdown,
       recentActivity,
-      lastSynced: repo.last_synced
+      lastSynced: repo.last_synced,
+      wordcloud
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
