@@ -869,7 +869,7 @@ async function loadInsights() {
 }
 
 function renderInsights(data) {
-  const { stats, severityBreakdown, recentActivity, lastSynced } = data;
+  const { stats, severityBreakdown, recentActivity, lastSynced, wordcloud } = data;
   const insightsContent = document.getElementById('insights-content');
 
   const lastSyncedDate = new Date(lastSynced).toLocaleString();
@@ -944,7 +944,62 @@ function renderInsights(data) {
         <strong>Stale rate:</strong> ${stats.open > 0 ? Math.round((stats.stale / stats.open) * 100) : 0}% of issues haven't been updated in 90+ days
       </p>
     </div>
+
+    <div class="insights-section">
+      <h3>Topic Word Cloud</h3>
+      <p class="info-text">Most frequent terms from open issue titles and labels.</p>
+      <div class="wordcloud-container">
+        ${wordcloud && wordcloud.length > 0
+          ? '<canvas id="wordcloud-canvas"></canvas>'
+          : '<p class="info-text">No issue data available to generate a word cloud.</p>'}
+      </div>
+    </div>
   `;
+
+  // Render word cloud after DOM is updated
+  if (wordcloud && wordcloud.length > 0 && typeof WordCloud !== 'undefined') {
+    requestAnimationFrame(() => renderWordCloud(wordcloud));
+  }
+}
+
+function renderWordCloud(words) {
+  const canvas = document.getElementById('wordcloud-canvas');
+  if (!canvas) return;
+
+  const container = canvas.parentElement;
+  const width = container.clientWidth;
+  const height = 350;
+  canvas.width = width;
+  canvas.height = height;
+
+  // Scale word sizes based on frequency
+  const maxCount = Math.max(...words.map(w => w.count));
+  const minCount = Math.min(...words.map(w => w.count));
+  const range = maxCount - minCount || 1;
+
+  const colors = ['#2563eb', '#3b82f6', '#60a5fa', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+  const list = words.map(w => {
+    const normalized = (w.count - minCount) / range;
+    const size = Math.round(14 + normalized * 42);
+    return [w.text, size];
+  });
+
+  WordCloud(canvas, {
+    list: list,
+    gridSize: 8,
+    weightFactor: 1,
+    fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+    color: function () {
+      return colors[Math.floor(Math.random() * colors.length)];
+    },
+    backgroundColor: 'transparent',
+    rotateRatio: 0.3,
+    rotationSteps: 2,
+    shuffle: true,
+    drawOutOfBound: false,
+    shrinkToFit: true
+  });
 }
 
 function renderSeverityBar(level, count, maxCount, color) {
