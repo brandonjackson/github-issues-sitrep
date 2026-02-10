@@ -118,9 +118,18 @@ function initDatabase() {
       console.log('Migration complete: assignees column added');
     }
 
+    if (!columnNames.includes('last_activity_at')) {
+      console.log('Migrating database: Adding last_activity_at column...');
+      db.exec('ALTER TABLE issues ADD COLUMN last_activity_at INTEGER');
+      // Backfill: set last_activity_at to updated_at for existing rows
+      db.exec('UPDATE issues SET last_activity_at = updated_at WHERE last_activity_at IS NULL');
+      console.log('Migration complete: last_activity_at column added and backfilled');
+    }
+
     // Create indexes after ensuring columns exist
     db.exec('CREATE INDEX IF NOT EXISTS idx_issues_severity ON issues(severity)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_issues_project_status ON issues(project_status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_issues_last_activity_at ON issues(last_activity_at)');
   } catch (error) {
     console.error('Migration error:', error.message);
     // If migration fails, log but don't crash
@@ -150,14 +159,16 @@ function saveIssue(repoId, issue, projectData = null) {
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO issues
-    (id, repo_id, number, title, state, labels, created_at, updated_at, author, body, comments_count, is_bug, is_stale, html_url, project_status, sprint, assignees)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, repo_id, number, title, state, labels, created_at, updated_at, author, body, comments_count, is_bug, is_stale, html_url, project_status, sprint, assignees, last_activity_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Extract assignees from issue
   const assignees = issue.assignees && issue.assignees.length > 0
     ? JSON.stringify(issue.assignees.map(a => a.login))
     : null;
+
+  const updatedAt = new Date(issue.updated_at).getTime();
 
   stmt.run(
     issue.id,
@@ -167,7 +178,7 @@ function saveIssue(repoId, issue, projectData = null) {
     issue.state,
     JSON.stringify(issue.labels.map(l => l.name)),
     new Date(issue.created_at).getTime(),
-    new Date(issue.updated_at).getTime(),
+    updatedAt,
     issue.user.login,
     issue.body || '',
     issue.comments,
@@ -176,7 +187,8 @@ function saveIssue(repoId, issue, projectData = null) {
     issue.html_url,
     projectData?.status || null,
     projectData?.sprint || null,
-    assignees
+    assignees,
+    updatedAt
   );
 }
 
@@ -363,14 +375,23 @@ function saveComment(issueId, comment) {
     INSERT OR REPLACE INTO comments (id, issue_id, author, body, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
+  const commentCreatedAt = new Date(comment.created_at).getTime();
+  const commentUpdatedAt = new Date(comment.updated_at).getTime();
   stmt.run(
     comment.id,
     issueId,
     comment.user.login,
     comment.body || '',
-    new Date(comment.created_at).getTime(),
-    new Date(comment.updated_at).getTime()
+    commentCreatedAt,
+    commentUpdatedAt
   );
+
+  // Update the issue's last_activity_at if this comment is newer
+  const latestCommentTime = Math.max(commentCreatedAt, commentUpdatedAt);
+  db.prepare(`
+    UPDATE issues SET last_activity_at = MAX(COALESCE(last_activity_at, 0), ?)
+    WHERE id = ?
+  `).run(latestCommentTime, issueId);
 }
 
 function getComments(issueId) {
