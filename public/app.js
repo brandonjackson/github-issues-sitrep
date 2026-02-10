@@ -774,9 +774,9 @@ function sortAndRenderIssues() {
         valA = severityOrder[a.severity] !== undefined ? severityOrder[a.severity] : 999;
         valB = severityOrder[b.severity] !== undefined ? severityOrder[b.severity] : 999;
         break;
-      case 'updated_at':
-        valA = new Date(a.updated_at).getTime();
-        valB = new Date(b.updated_at).getTime();
+      case 'last_activity_at':
+        valA = a.last_activity_at || a.updated_at;
+        valB = b.last_activity_at || b.updated_at;
         break;
       case 'assignees':
         try {
@@ -820,7 +820,7 @@ function renderIssues() {
     const issueUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${issue.number}`;
     const severityClass = issue.severity ? `severity-${issue.severity}` : '';
     const stateClass = `state-${issue.state}`;
-    const updatedDate = new Date(issue.updated_at).toLocaleDateString();
+    const lastActivityDate = new Date(issue.last_activity_at || issue.updated_at).toLocaleDateString();
 
     // Parse assignees (stored as JSON string)
     let assigneeList = '—';
@@ -843,7 +843,7 @@ function renderIssues() {
         <td><span class="sprint-badge">${escapeHtml(issue.sprint || '—')}</span></td>
         <td><span class="assignee-badge">${assigneeList}</span></td>
         <td><span class="state-badge ${stateClass}">${issue.state}</span></td>
-        <td><span class="issue-date">${updatedDate}</span></td>
+        <td><span class="issue-date">${lastActivityDate}</span></td>
       </tr>
     `;
   }).join('');
@@ -1074,7 +1074,7 @@ function renderEpics(data) {
                           'var(--primary)';
 
     const epicUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${epic.number}`;
-    const updatedDate = new Date(epic.updated_at).toLocaleDateString();
+    const lastActivityDate = new Date(epic.last_activity_at || epic.updated_at).toLocaleDateString();
 
     let assigneeList = '';
     if (epic.assignees) {
@@ -1097,7 +1097,7 @@ function renderEpics(data) {
             ${epic.severity ? `<span class="severity-badge severity-${epic.severity}">${epic.severity}</span>` : ''}
             ${epic.project_status ? `<span class="status-badge-inline">${escapeHtml(epic.project_status)}</span>` : ''}
             ${assigneeList ? `<span class="epic-assignees">${escapeHtml(assigneeList)}</span>` : ''}
-            <span class="epic-date">Updated ${updatedDate}</span>
+            <span class="epic-date">Last activity ${lastActivityDate}</span>
           </div>
         </div>
 

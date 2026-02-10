@@ -714,6 +714,7 @@ app.get('/api/epics/:owner/:name', async (req, res) => {
           project_status: issue.project_status,
           updated_at: issue.updated_at,
           created_at: issue.created_at,
+          last_activity_at: issue.last_activity_at || issue.updated_at,
           subtasks: {
             completed: completedCount,
             total: totalCount,
@@ -723,8 +724,8 @@ app.get('/api/epics/:owner/:name', async (req, res) => {
       }
     }
 
-    // Sort by most recently updated
-    epics.sort((a, b) => b.updated_at - a.updated_at);
+    // Sort by most recent activity (comments, updates, etc.)
+    epics.sort((a, b) => b.last_activity_at - a.last_activity_at);
 
     // Generate LLM summary for what's left to do across all epics
     let aiSummary = null;
