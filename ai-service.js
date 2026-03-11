@@ -440,11 +440,27 @@ async function chat(prompt) {
   return response.content[0].text.trim();
 }
 
+// Chat helper with model selection (for multi-repo queries that need Opus)
+async function chatWithModel(prompt, tier = 'indexing') {
+  const model = tier === 'query' ? MODELS.query : MODELS.indexing;
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: tier === 'query' ? 2000 : 1200,
+    messages: [{
+      role: 'user',
+      content: prompt
+    }]
+  });
+
+  return response.content[0].text.trim();
+}
+
 module.exports = {
   summarizeIssue,
   generateStarterReport,
   answerQuestion,
   generateMissingSummaries,
   generateAllStarterReports,
-  chat
+  chat,
+  chatWithModel
 };

@@ -1,5 +1,6 @@
 // State management
-let currentRepo = null;
+let selectedRepos = []; // Array of { owner, name } objects
+let syncedRepos = []; // All repos that have been synced previously (from server)
 let isSyncing = false;
 let isProcessing = false;
 let currentPage = 'chat';
@@ -7,14 +8,15 @@ let allIssues = [];
 let filteredIssues = [];
 let sortColumn = 'number';
 let sortDirection = 'desc';
+let pendingRepos = []; // Repos being added in config section before connecting
 
 // DOM elements
 const configSection = document.getElementById('config-section');
 const appSection = document.getElementById('app-section');
 const repoInput = document.getElementById('repo-input');
+const addRepoBtn = document.getElementById('add-repo-btn');
 const setRepoBtn = document.getElementById('set-repo-btn');
 const configError = document.getElementById('config-error');
-const repoNameDisplay = document.getElementById('repo-name');
 const changeRepoBtn = document.getElementById('change-repo-btn');
 const refreshBtn = document.getElementById('refresh-btn');
 const syncStatus = document.getElementById('sync-status');
@@ -32,21 +34,40 @@ const pages = document.querySelectorAll('.page');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-  loadSavedRepo();
+  loadSavedRepos();
   setupEventListeners();
   checkHealth();
+  loadSyncedReposList();
 });
 
 function setupEventListeners() {
-  setRepoBtn.addEventListener('click', handleSetRepo);
+  // Multi-repo add button
+  addRepoBtn.addEventListener('click', handleAddRepo);
   repoInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') handleSetRepo();
+    if (e.key === 'Enter') handleAddRepo();
+  });
+
+  // Connect button (was set-repo-btn)
+  setRepoBtn.addEventListener('click', handleConnect);
+
+  // Show suggestions as user types
+  repoInput.addEventListener('input', handleRepoInputChange);
+  repoInput.addEventListener('focus', handleRepoInputChange);
+
+  // Close suggestions when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.repo-search-container')) {
+      const suggestions = document.getElementById('repo-suggestions');
+      if (suggestions) suggestions.classList.remove('show');
+    }
   });
 
   changeRepoBtn.addEventListener('click', () => {
-    currentRepo = null;
-    localStorage.removeItem('github_sitrep_repo');
+    // Go back to config with current repos pre-loaded
+    pendingRepos = [...selectedRepos];
     showConfigSection();
+    renderConfigTags();
+    updateConnectButton();
   });
 
   // Refresh button and dropdown
@@ -60,14 +81,12 @@ function setupEventListeners() {
     refreshDropdownMenu.classList.toggle('show');
   });
 
-  // Close dropdown when clicking outside
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.refresh-dropdown')) {
       refreshDropdownMenu.classList.remove('show');
     }
   });
 
-  // Handle dropdown items
   document.querySelectorAll('.dropdown-item').forEach(item => {
     item.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -101,8 +120,9 @@ function setupEventListeners() {
 
   exampleButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      repoInput.value = btn.dataset.repo;
-      handleSetRepo();
+      const repoStr = btn.dataset.repo;
+      const [owner, name] = repoStr.split('/');
+      addPendingRepo(owner, name);
     });
   });
 
@@ -126,7 +146,7 @@ function setupEventListeners() {
     issuesSearch.addEventListener('input', () => filterIssues());
   }
   if (stateFilter) {
-    stateFilter.addEventListener('change', () => loadIssues()); // Reload from API when state changes
+    stateFilter.addEventListener('change', () => loadIssues());
   }
   if (severityFilter) {
     severityFilter.addEventListener('change', () => filterIssues());
@@ -157,90 +177,114 @@ function setupEventListeners() {
   });
 }
 
-function switchPage(page) {
-  currentPage = page;
+// ============================================
+// Multi-repo config UI
+// ============================================
 
-  // Update navigation
-  navItems.forEach(item => {
-    if (item.dataset.page === page) {
-      item.classList.add('active');
-    } else {
-      item.classList.remove('active');
-    }
-  });
-
-  // Update pages
-  pages.forEach(pageEl => {
-    if (pageEl.id === `${page}-page`) {
-      pageEl.classList.add('active');
-    } else {
-      pageEl.classList.remove('active');
-    }
-  });
-
-  // Load data for the page
-  if (page === 'issues') {
-    loadIssues();
-  } else if (page === 'insights') {
-    loadInsights();
-  } else if (page === 'wip') {
-    loadWIP();
-  } else if (page === 'epics') {
-    loadEpics();
-  }
-}
-
-async function checkHealth() {
+async function loadSyncedReposList() {
   try {
-    const response = await fetch('/api/health');
+    const response = await fetch('/api/repos');
     const data = await response.json();
-
-    if (!data.anthropicConfigured) {
-      showError('Anthropic API key not configured. Please check the README for setup instructions.');
-    }
+    syncedRepos = data.repos || [];
   } catch (error) {
-    console.error('Health check failed:', error);
+    console.error('Error loading synced repos:', error);
+    syncedRepos = [];
   }
 }
 
-async function loadSavedRepo() {
-  const saved = localStorage.getItem('github_sitrep_repo');
-  if (saved) {
-    const repo = JSON.parse(saved);
+function handleRepoInputChange() {
+  const input = repoInput.value.trim().toLowerCase();
+  const suggestions = document.getElementById('repo-suggestions');
 
-    // Check if the repo still has local data
-    try {
-      const response = await fetch(`/api/repo/${repo.owner}/${repo.name}`);
-      const data = await response.json();
-
-      if (response.ok) {
-        currentRepo = { owner: repo.owner, name: repo.name, ...data };
-        localStorage.setItem('github_sitrep_repo', JSON.stringify(currentRepo));
-        showChatSection();
-
-        // If no local data (e.g., after cache reset), trigger sync
-        if (!data.hasLocalData) {
-          setSyncStatus('syncing', 'No cached data found, syncing...');
-          startSync();
-        } else {
-          // Check for active sync or show ready state
-          checkSyncStatus();
-        }
-      } else {
-        // Repo no longer exists or is inaccessible
-        localStorage.removeItem('github_sitrep_repo');
-        currentRepo = null;
-      }
-    } catch (error) {
-      console.error('Error loading saved repo:', error);
-      currentRepo = repo;
-      showChatSection();
-      checkSyncStatus();
-    }
+  if (!input || input.length < 2) {
+    suggestions.classList.remove('show');
+    return;
   }
+
+  // Filter synced repos that match the input and aren't already pending
+  const matches = syncedRepos.filter(repo => {
+    const fullName = `${repo.owner}/${repo.name}`.toLowerCase();
+    const alreadyAdded = pendingRepos.some(p => p.owner === repo.owner && p.name === repo.name);
+    return !alreadyAdded && fullName.includes(input);
+  });
+
+  if (matches.length === 0) {
+    suggestions.classList.remove('show');
+    return;
+  }
+
+  suggestions.innerHTML = matches.map(repo => `
+    <div class="repo-suggestion" data-owner="${escapeHtml(repo.owner)}" data-name="${escapeHtml(repo.name)}">
+      <span>${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}</span>
+      <span class="synced-indicator">cached</span>
+    </div>
+  `).join('');
+
+  suggestions.querySelectorAll('.repo-suggestion').forEach(el => {
+    el.addEventListener('click', () => {
+      addPendingRepo(el.dataset.owner, el.dataset.name);
+      suggestions.classList.remove('show');
+      repoInput.value = '';
+    });
+  });
+
+  suggestions.classList.add('show');
 }
 
-async function handleSetRepo() {
+function addPendingRepo(owner, name) {
+  // Check if already added
+  if (pendingRepos.some(r => r.owner === owner && r.name === name)) {
+    return;
+  }
+
+  const isSynced = syncedRepos.some(r => r.owner === owner && r.name === name);
+  pendingRepos.push({ owner, name, isSynced });
+  renderConfigTags();
+  updateConnectButton();
+  repoInput.value = '';
+  hideError();
+}
+
+function removePendingRepo(owner, name) {
+  pendingRepos = pendingRepos.filter(r => !(r.owner === owner && r.name === name));
+  renderConfigTags();
+  updateConnectButton();
+}
+
+function renderConfigTags() {
+  const tagsContainer = document.getElementById('repo-tags');
+  if (pendingRepos.length === 0) {
+    tagsContainer.innerHTML = '';
+    return;
+  }
+
+  tagsContainer.innerHTML = pendingRepos.map(repo => {
+    const syncedClass = repo.isSynced ? ' synced' : '';
+    return `
+      <span class="repo-tag${syncedClass}" data-owner="${escapeHtml(repo.owner)}" data-name="${escapeHtml(repo.name)}">
+        ${escapeHtml(repo.owner)}/${escapeHtml(repo.name)}
+        <button class="remove-tag" title="Remove">&times;</button>
+      </span>
+    `;
+  }).join('');
+
+  tagsContainer.querySelectorAll('.remove-tag').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const tag = e.target.closest('.repo-tag');
+      removePendingRepo(tag.dataset.owner, tag.dataset.name);
+    });
+  });
+}
+
+function updateConnectButton() {
+  setRepoBtn.disabled = pendingRepos.length === 0;
+  const count = pendingRepos.length;
+  setRepoBtn.textContent = count === 0 ? 'Connect' :
+    count === 1 ? 'Connect 1 Repository' :
+    `Connect ${count} Repositories`;
+}
+
+async function handleAddRepo() {
   const input = repoInput.value.trim();
   if (!input) return;
 
@@ -251,69 +295,85 @@ async function handleSetRepo() {
   }
 
   const [, owner, name] = match;
-  setRepoBtn.disabled = true;
-  setRepoBtn.textContent = 'Connecting...';
+
+  // Check if it already exists locally
+  const isSynced = syncedRepos.some(r => r.owner === owner && r.name === name);
+
+  if (isSynced) {
+    addPendingRepo(owner, name);
+    return;
+  }
+
+  // Validate it exists on GitHub
+  addRepoBtn.disabled = true;
   hideError();
 
   try {
-    // Validate repository exists
     const response = await fetch(`/api/repo/${owner}/${name}`);
     const data = await response.json();
 
     if (!response.ok) {
-      // Handle rate limit errors specially
       if (data.isRateLimit) {
-        const errorLines = data.error.split('\n');
-        showError(errorLines.join('\n')); // Show full error message
+        showError(data.error);
       } else {
         showError(data.error || 'Repository not found');
       }
-      setRepoBtn.disabled = false;
-      setRepoBtn.textContent = 'Connect';
+      addRepoBtn.disabled = false;
       return;
     }
 
-    currentRepo = { owner, name, ...data };
-    localStorage.setItem('github_sitrep_repo', JSON.stringify(currentRepo));
-
-    showChatSection();
-
-    // Start sync if no local data
-    if (!data.hasLocalData) {
-      startSync();
-    } else {
-      setSyncStatus('complete', 'Repository data loaded');
-    }
-
+    addPendingRepo(owner, name);
+    addRepoBtn.disabled = false;
   } catch (error) {
     showError(error.message);
-    setRepoBtn.disabled = false;
-    setRepoBtn.textContent = 'Connect';
+    addRepoBtn.disabled = false;
   }
 }
 
-async function startSync() {
+async function handleConnect() {
+  if (pendingRepos.length === 0) return;
+
+  selectedRepos = [...pendingRepos];
+  localStorage.setItem('github_sitrep_repos', JSON.stringify(selectedRepos));
+
+  showAppSection();
+
+  // Determine which repos need syncing
+  const needsSync = selectedRepos.filter(r =>
+    !syncedRepos.some(s => s.owner === r.owner && s.name === r.name)
+  );
+
+  if (needsSync.length > 0) {
+    // Sync repos that don't have local data yet (one at a time)
+    for (const repo of needsSync) {
+      await startSync(repo.owner, repo.name);
+    }
+  } else {
+    setSyncStatus('complete', `${selectedRepos.length} repositories loaded from cache`);
+  }
+}
+
+// ============================================
+// Sync management
+// ============================================
+
+async function startSync(owner, name) {
   if (isSyncing) return;
 
   isSyncing = true;
-  setSyncStatus('syncing', 'Starting sync...');
-  showProgress('Starting sync...', 0);
+  setSyncStatus('syncing', `Syncing ${owner}/${name}...`);
+  showProgress(`Syncing ${owner}/${name}...`, 0);
   disableStarterButtons(true);
 
   try {
     const response = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        owner: currentRepo.owner,
-        name: currentRepo.name
-      })
+      body: JSON.stringify({ owner, name })
     });
 
-    const data = await response.json();
-
-    // Poll for sync status
-    pollSyncStatus();
+    await response.json();
+    await pollSyncStatusForRepo(owner, name);
 
   } catch (error) {
     console.error('Sync error:', error);
@@ -324,161 +384,235 @@ async function startSync() {
   }
 }
 
+function pollSyncStatusForRepo(owner, name) {
+  return new Promise((resolve) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/sync/${owner}/${name}`);
+        const data = await response.json();
+
+        if (data.status === 'fetching' || data.status === 'summarizing' || data.status === 'generating-reports') {
+          const stage = data.stage || 'Processing...';
+          const percentage = data.percentage || 0;
+          setSyncStatus('syncing', `${owner}/${name}: ${stage}`);
+          updateProgress(`${owner}/${name}: ${stage}`, percentage);
+        } else if (data.status === 'complete') {
+          clearInterval(interval);
+          hideProgress();
+          isSyncing = false;
+          refreshBtn.disabled = false;
+          document.getElementById('refresh-dropdown-toggle').disabled = false;
+          refreshBtn.classList.remove('spinning');
+          disableStarterButtons(false);
+
+          // Refresh local cached repos list
+          await loadSyncedReposList();
+
+          const statusMessage = data.message || `${owner}/${name}: ${data.issuesCount} issues synced`;
+          setSyncStatus('complete', statusMessage);
+
+          if (currentPage === 'issues') loadIssues();
+          else if (currentPage === 'insights') loadInsights();
+          else if (currentPage === 'wip') loadWIP();
+          else if (currentPage === 'epics') loadEpics();
+
+          resolve();
+        } else if (data.status === 'error') {
+          clearInterval(interval);
+          showSyncError(data);
+          hideProgress();
+          isSyncing = false;
+          refreshBtn.disabled = false;
+          document.getElementById('refresh-dropdown-toggle').disabled = false;
+          refreshBtn.classList.remove('spinning');
+          disableStarterButtons(false);
+          resolve();
+        }
+      } catch (error) {
+        console.error('Poll error:', error);
+      }
+    }, 1000);
+  });
+}
+
 async function handleRefresh() {
-  if (isSyncing || !currentRepo) return;
+  if (isSyncing || selectedRepos.length === 0) return;
 
   isSyncing = true;
   refreshBtn.disabled = true;
   document.getElementById('refresh-dropdown-toggle').disabled = true;
   refreshBtn.classList.add('spinning');
-  setSyncStatus('syncing', 'Checking for updates...');
-  showProgress('Checking for updates...', 0);
   disableStarterButtons(true);
 
-  try {
-    const response = await fetch('/api/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        owner: currentRepo.owner,
-        name: currentRepo.name
-      })
-    });
+  for (const repo of selectedRepos) {
+    setSyncStatus('syncing', `Refreshing ${repo.owner}/${repo.name}...`);
+    showProgress(`Refreshing ${repo.owner}/${repo.name}...`, 0);
 
-    const data = await response.json();
+    try {
+      await fetch('/api/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: repo.owner, name: repo.name })
+      });
 
-    // Poll for sync status (reuse existing polling)
-    pollSyncStatus();
-
-  } catch (error) {
-    console.error('Refresh error:', error);
-    setSyncStatus('error', 'Refresh failed');
-    hideProgress();
-    isSyncing = false;
-    refreshBtn.disabled = false;
-    document.getElementById('refresh-dropdown-toggle').disabled = false;
-    refreshBtn.classList.remove('spinning');
-    disableStarterButtons(false);
+      await pollSyncStatusForRepo(repo.owner, repo.name);
+    } catch (error) {
+      console.error(`Refresh error for ${repo.owner}/${repo.name}:`, error);
+    }
   }
+
+  setSyncStatus('complete', 'All repositories refreshed');
+  hideProgress();
+  isSyncing = false;
+  refreshBtn.disabled = false;
+  document.getElementById('refresh-dropdown-toggle').disabled = false;
+  refreshBtn.classList.remove('spinning');
+  disableStarterButtons(false);
 }
 
 async function handleRefreshCache() {
-  if (isSyncing || !currentRepo) return;
+  if (isSyncing || selectedRepos.length === 0) return;
 
-  const confirmed = confirm('This will recompute all AI summaries for this repository. This may take several minutes and consume API credits. Continue?');
+  const repoNames = selectedRepos.map(r => `${r.owner}/${r.name}`).join(', ');
+  const confirmed = confirm(`This will recompute all AI summaries for: ${repoNames}. This may take several minutes and consume API credits. Continue?`);
   if (!confirmed) return;
 
   isSyncing = true;
   refreshBtn.disabled = true;
   document.getElementById('refresh-dropdown-toggle').disabled = true;
   refreshBtn.classList.add('spinning');
-  setSyncStatus('syncing', 'Regenerating summaries...');
-  showProgress('Regenerating summaries...', 0);
   disableStarterButtons(true);
 
-  try {
-    const response = await fetch('/api/refresh-cache', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        owner: currentRepo.owner,
-        name: currentRepo.name
-      })
-    });
+  for (const repo of selectedRepos) {
+    setSyncStatus('syncing', `Regenerating summaries for ${repo.owner}/${repo.name}...`);
+    showProgress(`Regenerating summaries for ${repo.owner}/${repo.name}...`, 0);
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to refresh cache');
-    }
-
-    // Poll for sync status
-    pollSyncStatus();
-
-  } catch (error) {
-    console.error('Refresh cache error:', error);
-    setSyncStatus('error', 'Failed to refresh cache: ' + error.message);
-    hideProgress();
-    isSyncing = false;
-    refreshBtn.disabled = false;
-    document.getElementById('refresh-dropdown-toggle').disabled = false;
-    refreshBtn.classList.remove('spinning');
-    disableStarterButtons(false);
-  }
-}
-
-async function pollSyncStatus() {
-  const interval = setInterval(async () => {
     try {
-      const response = await fetch(`/api/sync/${currentRepo.owner}/${currentRepo.name}`);
-      const data = await response.json();
+      const response = await fetch('/api/refresh-cache', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: repo.owner, name: repo.name })
+      });
 
-      if (data.status === 'fetching' || data.status === 'summarizing' || data.status === 'generating-reports') {
-        // Update progress bar with detailed information
-        const stage = data.stage || 'Processing...';
-        const percentage = data.percentage || 0;
-
-        setSyncStatus('syncing', stage);
-        updateProgress(stage, percentage);
-      } else if (data.status === 'complete') {
-        clearInterval(interval);
-        const statusMessage = data.message || `Ready! ${data.issuesCount} issues synced`;
-        setSyncStatus('complete', statusMessage);
-        hideProgress();
-        isSyncing = false;
-        refreshBtn.disabled = false;
-        document.getElementById('refresh-dropdown-toggle').disabled = false;
-        refreshBtn.classList.remove('spinning');
-        disableStarterButtons(false);
-
-        // Reload current page data so user sees fresh results
-        if (currentPage === 'issues') loadIssues();
-        else if (currentPage === 'insights') loadInsights();
-        else if (currentPage === 'wip') loadWIP();
-        else if (currentPage === 'epics') loadEpics();
-      } else if (data.status === 'error') {
-        clearInterval(interval);
-        showSyncError(data);
-        hideProgress();
-        isSyncing = false;
-        refreshBtn.disabled = false;
-        document.getElementById('refresh-dropdown-toggle').disabled = false;
-        refreshBtn.classList.remove('spinning');
-        disableStarterButtons(false);
+      if (response.ok) {
+        await pollSyncStatusForRepo(repo.owner, repo.name);
       }
     } catch (error) {
-      console.error('Poll error:', error);
+      console.error(`Refresh cache error for ${repo.owner}/${repo.name}:`, error);
     }
-  }, 1000); // Poll more frequently for smoother progress updates
+  }
+
+  setSyncStatus('complete', 'Cache refreshed for all repositories');
+  hideProgress();
+  isSyncing = false;
+  refreshBtn.disabled = false;
+  document.getElementById('refresh-dropdown-toggle').disabled = false;
+  refreshBtn.classList.remove('spinning');
+  disableStarterButtons(false);
 }
 
-async function checkSyncStatus() {
-  try {
-    const response = await fetch(`/api/sync/${currentRepo.owner}/${currentRepo.name}`);
-    const data = await response.json();
+// ============================================
+// Navigation and page management
+// ============================================
 
-    if (data.status === 'fetching' || data.status === 'summarizing' || data.status === 'generating-reports') {
-      isSyncing = true;
-      showProgress(data.stage || 'Syncing...', data.percentage || 0);
-      pollSyncStatus();
+function switchPage(page) {
+  currentPage = page;
+
+  navItems.forEach(item => {
+    if (item.dataset.page === page) {
+      item.classList.add('active');
     } else {
-      setSyncStatus('complete', 'Repository data loaded');
-      hideProgress();
+      item.classList.remove('active');
+    }
+  });
+
+  pages.forEach(pageEl => {
+    if (pageEl.id === `${page}-page`) {
+      pageEl.classList.add('active');
+    } else {
+      pageEl.classList.remove('active');
+    }
+  });
+
+  if (page === 'issues') loadIssues();
+  else if (page === 'insights') loadInsights();
+  else if (page === 'wip') loadWIP();
+  else if (page === 'epics') loadEpics();
+}
+
+async function checkHealth() {
+  try {
+    const response = await fetch('/api/health');
+    const data = await response.json();
+    if (!data.anthropicConfigured) {
+      showError('Anthropic API key not configured. Please check the README for setup instructions.');
     }
   } catch (error) {
-    // No active sync
-    setSyncStatus('complete', 'Repository data loaded');
-    hideProgress();
+    console.error('Health check failed:', error);
   }
 }
+
+async function loadSavedRepos() {
+  const saved = localStorage.getItem('github_sitrep_repos');
+  if (saved) {
+    try {
+      selectedRepos = JSON.parse(saved);
+      if (selectedRepos.length > 0) {
+        showAppSection();
+
+        // Check which repos have local data
+        let allHaveData = true;
+        for (const repo of selectedRepos) {
+          try {
+            const response = await fetch(`/api/repo/${repo.owner}/${repo.name}`);
+            const data = await response.json();
+            if (!response.ok || !data.hasLocalData) {
+              allHaveData = false;
+              await startSync(repo.owner, repo.name);
+            }
+          } catch (error) {
+            console.error(`Error checking repo ${repo.owner}/${repo.name}:`, error);
+          }
+        }
+
+        if (allHaveData) {
+          setSyncStatus('complete', `${selectedRepos.length} repositories loaded`);
+        }
+        return;
+      }
+    } catch (e) {
+      // Invalid JSON, fall through
+    }
+  }
+
+  // Also check legacy single-repo format
+  const legacySaved = localStorage.getItem('github_sitrep_repo');
+  if (legacySaved) {
+    try {
+      const repo = JSON.parse(legacySaved);
+      selectedRepos = [{ owner: repo.owner, name: repo.name }];
+      localStorage.setItem('github_sitrep_repos', JSON.stringify(selectedRepos));
+      localStorage.removeItem('github_sitrep_repo');
+      showAppSection();
+      setSyncStatus('complete', 'Repository loaded');
+      return;
+    } catch (e) {
+      // Invalid JSON
+    }
+  }
+}
+
+// ============================================
+// Chat & Reports (multi-repo aware)
+// ============================================
 
 async function handleStarterButton(type) {
   if (isProcessing || isSyncing) return;
 
   const labels = {
-    'quick-sitrep': '⚡️ Quick Sitrep',
-    'recent-bugs': '🚨 Recent Bugs',
-    'zombie-tickets': '🧟 Zombie Tickets'
+    'quick-sitrep': 'Quick Sitrep',
+    'recent-bugs': 'Recent Bugs',
+    'zombie-tickets': 'Zombie Tickets'
   };
 
   addMessage('user', labels[type]);
@@ -489,9 +623,21 @@ async function handleStarterButton(type) {
   sendBtn.disabled = true;
 
   try {
-    const response = await fetch(`/api/report/${currentRepo.owner}/${currentRepo.name}/${type}`);
-    const data = await response.json();
+    let response;
+    if (selectedRepos.length === 1) {
+      // Single repo: use original endpoint
+      const repo = selectedRepos[0];
+      response = await fetch(`/api/report/${repo.owner}/${repo.name}/${type}`);
+    } else {
+      // Multi repo: use new endpoint
+      response = await fetch(`/api/multi/report/${type}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos: selectedRepos })
+      });
+    }
 
+    const data = await response.json();
     removeLoadingMessage();
 
     if (response.ok) {
@@ -525,18 +671,23 @@ async function handleSendMessage() {
   sendBtn.disabled = true;
 
   try {
-    const response = await fetch('/api/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        owner: currentRepo.owner,
-        name: currentRepo.name,
-        question
-      })
-    });
+    let response;
+    if (selectedRepos.length === 1) {
+      const repo = selectedRepos[0];
+      response = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner: repo.owner, name: repo.name, question })
+      });
+    } else {
+      response = await fetch('/api/multi/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos: selectedRepos, question })
+      });
+    }
 
     const data = await response.json();
-
     removeLoadingMessage();
 
     if (response.ok) {
@@ -567,17 +718,20 @@ function addMessage(role, content) {
   contentDiv.className = 'message-content';
 
   if (role === 'assistant') {
-    // Convert issue numbers to markdown links before rendering
-    const linkedContent = content.replace(/#(\d+)/g, (match, number) => {
-      const url = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${number}`;
-      return `[${match}](${url})`;
-    });
+    // Convert issue numbers to markdown links
+    let linkedContent = content;
+    if (selectedRepos.length === 1) {
+      const repo = selectedRepos[0];
+      linkedContent = content.replace(/#(\d+)/g, (match, number) => {
+        const url = `https://github.com/${repo.owner}/${repo.name}/issues/${number}`;
+        return `[${match}](${url})`;
+      });
+    }
+    // For multi-repo, the AI should already include full repo/issue references
 
-    // Render markdown and sanitize
     const rawHtml = marked.parse(linkedContent);
     contentDiv.innerHTML = DOMPurify.sanitize(rawHtml);
 
-    // Open all links in new tabs
     contentDiv.querySelectorAll('a').forEach(a => {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
@@ -618,28 +772,38 @@ function removeLoadingMessage() {
   if (loading) loading.remove();
 }
 
-function showConfigSection() {
-  configSection.style.display = 'flex';
-  appSection.style.display = 'none';
-  repoInput.value = '';
-  setRepoBtn.disabled = false;
-  setRepoBtn.textContent = 'Connect';
-  hideError();
-}
-
-function showChatSection() {
-  configSection.style.display = 'none';
-  appSection.style.display = 'flex';
-  repoNameDisplay.textContent = `${currentRepo.owner}/${currentRepo.name}`;
-}
+// ============================================
+// Issues page (multi-repo aware)
+// ============================================
 
 async function loadIssues() {
   const tbody = document.getElementById('issues-tbody');
-  tbody.innerHTML = '<tr><td colspan="9" class="loading-cell"><div class="loading-spinner"></div>Loading issues...</td></tr>';
+  const colCount = selectedRepos.length > 1 ? 10 : 9;
+  tbody.innerHTML = `<tr><td colspan="${colCount}" class="loading-cell"><div class="loading-spinner"></div>Loading issues...</td></tr>`;
+
+  // Toggle repo column visibility
+  const table = document.querySelector('.issues-table');
+  if (selectedRepos.length <= 1) {
+    table.classList.add('single-repo');
+  } else {
+    table.classList.remove('single-repo');
+  }
 
   try {
     const stateFilter = document.getElementById('state-filter').value || 'open';
-    const response = await fetch(`/api/issues/${currentRepo.owner}/${currentRepo.name}?state=${stateFilter}&limit=500`);
+    let response;
+
+    if (selectedRepos.length === 1) {
+      const repo = selectedRepos[0];
+      response = await fetch(`/api/issues/${repo.owner}/${repo.name}?state=${stateFilter}&limit=500`);
+    } else {
+      response = await fetch('/api/multi/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos: selectedRepos, state: stateFilter, limit: 500 })
+      });
+    }
+
     const data = await response.json();
 
     if (!response.ok) {
@@ -647,31 +811,15 @@ async function loadIssues() {
     }
 
     allIssues = data.issues;
-
-    // Diagnostic: log project data from API response
-    const withStatus = allIssues.filter(i => i.project_status);
-    const withSprint = allIssues.filter(i => i.sprint);
-    const withAssignees = allIssues.filter(i => i.assignees && i.assignees !== '[]');
-    console.log(`[loadIssues] ${allIssues.length} issues loaded. ${withStatus.length} with project_status, ${withSprint.length} with sprint, ${withAssignees.length} with assignees`);
-    if (withStatus.length > 0) {
-      console.log(`[loadIssues] Sample with status:`, withStatus[0].number, withStatus[0].project_status, withStatus[0].sprint);
-    } else if (allIssues.length > 0) {
-      console.log(`[loadIssues] First issue keys:`, Object.keys(allIssues[0]).join(', '));
-      console.log(`[loadIssues] First issue project_status:`, JSON.stringify(allIssues[0].project_status));
-    }
-
-    // Populate filter dropdowns with unique values
     populateFilterDropdowns();
-
     filterIssues();
   } catch (error) {
     console.error('Error loading issues:', error);
-    tbody.innerHTML = `<tr><td colspan="9" class="loading-cell">Error loading issues: ${error.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colCount}" class="loading-cell">Error loading issues: ${error.message}</td></tr>`;
   }
 }
 
 function populateFilterDropdowns() {
-  // Get unique statuses
   const statuses = new Set();
   const sprints = new Set();
   const assignees = new Set();
@@ -683,13 +831,10 @@ function populateFilterDropdowns() {
       try {
         const assigneesArray = typeof issue.assignees === 'string' ? JSON.parse(issue.assignees) : issue.assignees;
         assigneesArray.forEach(a => assignees.add(a));
-      } catch (e) {
-        // Ignore parse errors
-      }
+      } catch (e) { /* skip */ }
     }
   });
 
-  // Populate status filter
   const statusFilter = document.getElementById('status-filter');
   const currentStatus = statusFilter.value;
   statusFilter.innerHTML = '<option value="">All Statuses</option>';
@@ -701,7 +846,6 @@ function populateFilterDropdowns() {
     statusFilter.appendChild(option);
   });
 
-  // Populate sprint filter
   const sprintFilter = document.getElementById('sprint-filter');
   const currentSprint = sprintFilter.value;
   sprintFilter.innerHTML = '<option value="">All Sprints</option>';
@@ -713,7 +857,6 @@ function populateFilterDropdowns() {
     sprintFilter.appendChild(option);
   });
 
-  // Populate assignee filter
   const assigneeFilter = document.getElementById('assignee-filter');
   const currentAssignee = assigneeFilter.value;
   assigneeFilter.innerHTML = '<option value="">All Assignees</option>';
@@ -728,7 +871,6 @@ function populateFilterDropdowns() {
 
 function filterIssues() {
   const searchTerm = document.getElementById('issues-search').value.toLowerCase();
-  const stateFilter = document.getElementById('state-filter').value;
   const severityFilter = document.getElementById('severity-filter').value;
   const statusFilter = document.getElementById('status-filter').value;
   const sprintFilter = document.getElementById('sprint-filter').value;
@@ -778,6 +920,10 @@ function sortAndRenderIssues() {
         valA = a.last_activity_at || a.updated_at;
         valB = b.last_activity_at || b.updated_at;
         break;
+      case 'repo_name':
+        valA = `${a.repo_owner || ''}/${a.repo_name || ''}`.toLowerCase();
+        valB = `${b.repo_owner || ''}/${b.repo_name || ''}`.toLowerCase();
+        break;
       case 'assignees':
         try {
           const aArr = typeof a.assignees === 'string' ? JSON.parse(a.assignees) : (a.assignees || []);
@@ -810,37 +956,43 @@ function sortAndRenderIssues() {
 
 function renderIssues() {
   const tbody = document.getElementById('issues-tbody');
+  const isMulti = selectedRepos.length > 1;
+  const colCount = isMulti ? 10 : 9;
 
   if (filteredIssues.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No issues found</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${colCount}" class="empty-state">No issues found</td></tr>`;
     return;
   }
 
   tbody.innerHTML = filteredIssues.map(issue => {
-    const issueUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${issue.number}`;
+    const repoOwner = issue.repo_owner || (selectedRepos.length === 1 ? selectedRepos[0].owner : '');
+    const repoName = issue.repo_name || (selectedRepos.length === 1 ? selectedRepos[0].name : '');
+    const issueUrl = `https://github.com/${repoOwner}/${repoName}/issues/${issue.number}`;
     const severityClass = issue.severity ? `severity-${issue.severity}` : '';
     const stateClass = `state-${issue.state}`;
     const lastActivityDate = new Date(issue.last_activity_at || issue.updated_at).toLocaleDateString();
 
-    // Parse assignees (stored as JSON string)
-    let assigneeList = '—';
+    let assigneeList = '\u2014';
     if (issue.assignees) {
       try {
         const assigneesArray = typeof issue.assignees === 'string' ? JSON.parse(issue.assignees) : issue.assignees;
-        assigneeList = assigneesArray.length > 0 ? assigneesArray.join(', ') : '—';
+        assigneeList = assigneesArray.length > 0 ? assigneesArray.join(', ') : '\u2014';
       } catch (e) {
-        assigneeList = '—';
+        assigneeList = '\u2014';
       }
     }
+
+    const repoCell = isMulti ? `<td class="repo-cell"><span class="repo-badge" title="${escapeHtml(repoOwner)}/${escapeHtml(repoName)}">${escapeHtml(repoName)}</span></td>` : '';
 
     return `
       <tr>
         <td><span class="issue-number">#${issue.number}</span></td>
-        <td>${issue.severity ? `<span class="severity-badge ${severityClass}">${issue.severity}</span>` : '<span class="severity-badge">—</span>'}</td>
-        <td><span class="status-badge">${escapeHtml(issue.project_status || '—')}</span></td>
+        ${repoCell}
+        <td>${issue.severity ? `<span class="severity-badge ${severityClass}">${issue.severity}</span>` : '<span class="severity-badge">\u2014</span>'}</td>
+        <td><span class="status-badge">${escapeHtml(issue.project_status || '\u2014')}</span></td>
         <td><a href="${issueUrl}" target="_blank" class="issue-title">${escapeHtml(issue.title)}</a></td>
         <td><div class="issue-summary">${escapeHtml(issue.summary || 'No summary available')}</div></td>
-        <td><span class="sprint-badge">${escapeHtml(issue.sprint || '—')}</span></td>
+        <td><span class="sprint-badge">${escapeHtml(issue.sprint || '\u2014')}</span></td>
         <td><span class="assignee-badge">${assigneeList}</span></td>
         <td><span class="state-badge ${stateClass}">${issue.state}</span></td>
         <td><span class="issue-date">${lastActivityDate}</span></td>
@@ -849,12 +1001,27 @@ function renderIssues() {
   }).join('');
 }
 
+// ============================================
+// Insights page (multi-repo aware)
+// ============================================
+
 async function loadInsights() {
   const insightsContent = document.getElementById('insights-content');
   insightsContent.innerHTML = '<div class="loading-cell"><div class="loading-spinner"></div>Loading insights...</div>';
 
   try {
-    const response = await fetch(`/api/insights/${currentRepo.owner}/${currentRepo.name}`);
+    let response;
+    if (selectedRepos.length === 1) {
+      const repo = selectedRepos[0];
+      response = await fetch(`/api/insights/${repo.owner}/${repo.name}`);
+    } else {
+      response = await fetch('/api/multi/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos: selectedRepos })
+      });
+    }
+
     const data = await response.json();
 
     if (!response.ok) {
@@ -873,12 +1040,12 @@ function renderInsights(data) {
   const insightsContent = document.getElementById('insights-content');
 
   const lastSyncedDate = new Date(lastSynced).toLocaleString();
-
-  // Calculate max count for severity bar scaling
   const maxCount = Math.max(...Object.values(severityBreakdown), 1);
-
-  // Determine if P0-P2 issues exist (above no-ship threshold)
   const criticalIssues = (severityBreakdown.P0 || 0) + (severityBreakdown.P1 || 0) + (severityBreakdown.P2 || 0);
+
+  const repoLabel = selectedRepos.length > 1
+    ? `${selectedRepos.length} repositories`
+    : `${selectedRepos[0].owner}/${selectedRepos[0].name}`;
 
   insightsContent.innerHTML = `
     <div class="stats-grid">
@@ -911,14 +1078,14 @@ function renderInsights(data) {
 
     <div class="insights-section">
       <h3>Severity Breakdown (Open Issues)</h3>
-      <p class="info-text">Issues are automatically classified by AI based on severity. P0-P2 are above the no-ship threshold.</p>
+      <p class="info-text">Issues are automatically classified by AI based on severity. P0-P2 are above the no-ship threshold. Across ${repoLabel}.</p>
 
       <div class="severity-bars">
         ${renderSeverityBar('P0', severityBreakdown.P0 || 0, maxCount, '#ef4444')}
         ${renderSeverityBar('P1', severityBreakdown.P1 || 0, maxCount, '#f59e0b')}
         ${renderSeverityBar('P2', severityBreakdown.P2 || 0, maxCount, '#fbbf24')}
 
-        <div class="no-ship-line">⚠️ No-Ship Threshold</div>
+        <div class="no-ship-line">No-Ship Threshold</div>
 
         ${renderSeverityBar('P3', severityBreakdown.P3 || 0, maxCount, '#3b82f6')}
         ${renderSeverityBar('P4', severityBreakdown.P4 || 0, maxCount, '#9ca3af')}
@@ -926,11 +1093,11 @@ function renderInsights(data) {
 
       ${criticalIssues > 0 ? `
         <p class="info-text" style="margin-top: 1.5rem; color: var(--error);">
-          ⚠️ <strong>${criticalIssues} critical issue(s)</strong> are above the no-ship threshold and should be addressed before release.
+          <strong>${criticalIssues} critical issue(s)</strong> are above the no-ship threshold and should be addressed before release.
         </p>
       ` : `
         <p class="info-text" style="margin-top: 1.5rem; color: var(--success);">
-          ✓ No critical issues above the no-ship threshold. All P0-P2 issues have been resolved.
+          No critical issues above the no-ship threshold. All P0-P2 issues have been resolved.
         </p>
       `}
     </div>
@@ -956,7 +1123,6 @@ function renderInsights(data) {
     </div>
   `;
 
-  // Render word cloud after DOM is updated
   if (wordcloud && wordcloud.length > 0 && typeof WordCloud !== 'undefined') {
     requestAnimationFrame(() => renderWordCloud(wordcloud));
   }
@@ -972,7 +1138,6 @@ function renderWordCloud(words) {
   canvas.width = width;
   canvas.height = height;
 
-  // Scale word sizes based on frequency
   const maxCount = Math.max(...words.map(w => w.count));
   const minCount = Math.min(...words.map(w => w.count));
   const range = maxCount - minCount || 1;
@@ -1018,12 +1183,27 @@ function renderSeverityBar(level, count, maxCount, color) {
   `;
 }
 
+// ============================================
+// WIP page (multi-repo aware)
+// ============================================
+
 async function loadWIP() {
   const wipContent = document.getElementById('wip-content');
   wipContent.innerHTML = '<div class="loading-cell"><div class="loading-spinner"></div>Loading WIP summary...</div>';
 
   try {
-    const response = await fetch(`/api/wip/${currentRepo.owner}/${currentRepo.name}`);
+    let response;
+    if (selectedRepos.length === 1) {
+      const repo = selectedRepos[0];
+      response = await fetch(`/api/wip/${repo.owner}/${repo.name}`);
+    } else {
+      response = await fetch('/api/multi/wip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos: selectedRepos })
+      });
+    }
+
     const data = await response.json();
 
     if (!response.ok) {
@@ -1053,27 +1233,32 @@ function renderWIP(data) {
   wipContent.innerHTML = `
     <div class="wip-summary">
       <div class="wip-section">
-        <h3>🔨 What Engineers Are Building</h3>
+        <h3>What Engineers Are Building</h3>
         <div class="wip-text">${DOMPurify.sanitize(marked.parse(data.summary))}</div>
       </div>
 
       ${data.byEngineer && data.byEngineer.length > 0 ? `
         <div class="wip-section">
-          <h3>👥 By Engineer</h3>
+          <h3>By Engineer</h3>
           <div class="engineer-list">
             ${data.byEngineer.map(eng => `
               <div class="engineer-item">
                 <div class="engineer-name">${escapeHtml(eng.assignee)}</div>
                 <ul class="engineer-tasks">
-                  ${eng.issues.map(issue => `
+                  ${eng.issues.map(issue => {
+                    const repoPrefix = issue.repo_owner && issue.repo_name && selectedRepos.length > 1
+                      ? `<span class="repo-badge">${escapeHtml(issue.repo_name)}</span> `
+                      : '';
+                    return `
                     <li>
+                      ${repoPrefix}
                       <a href="${issue.html_url}" target="_blank" class="issue-link">
                         #${issue.number}
                       </a>
                       ${escapeHtml(issue.title)}
                       ${issue.project_status ? `<span class="status-badge-inline">${escapeHtml(issue.project_status)}</span>` : ''}
                     </li>
-                  `).join('')}
+                  `;}).join('')}
                 </ul>
               </div>
             `).join('')}
@@ -1088,12 +1273,27 @@ function renderWIP(data) {
   `;
 }
 
+// ============================================
+// Epics page (multi-repo aware)
+// ============================================
+
 async function loadEpics() {
   const epicsContent = document.getElementById('epics-content');
   epicsContent.innerHTML = '<div class="loading-cell"><div class="loading-spinner"></div>Loading epics...</div>';
 
   try {
-    const response = await fetch(`/api/epics/${currentRepo.owner}/${currentRepo.name}`);
+    let response;
+    if (selectedRepos.length === 1) {
+      const repo = selectedRepos[0];
+      response = await fetch(`/api/epics/${repo.owner}/${repo.name}`);
+    } else {
+      response = await fetch('/api/multi/epics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repos: selectedRepos })
+      });
+    }
+
     const data = await response.json();
 
     if (!response.ok) {
@@ -1109,12 +1309,13 @@ async function loadEpics() {
 
 function renderEpics(data) {
   const epicsContent = document.getElementById('epics-content');
+  const isMulti = selectedRepos.length > 1;
 
   if (!data.epics || data.epics.length === 0) {
     epicsContent.innerHTML = `
       <div class="empty-state">
         <p>No epics found.</p>
-        <p class="info-text">Epics are detected from issues that have task list checkboxes (<code>- [ ]</code>) in their body or are labeled with "epic".</p>
+        <p class="info-text">Epics are detected from issues labeled with "epic".</p>
       </div>
     `;
     return;
@@ -1128,7 +1329,9 @@ function renderEpics(data) {
                           progressPercent >= 25 ? '#f59e0b' :
                           'var(--primary)';
 
-    const epicUrl = `https://github.com/${currentRepo.owner}/${currentRepo.name}/issues/${epic.number}`;
+    const repoOwner = epic.repo_owner || (selectedRepos.length === 1 ? selectedRepos[0].owner : '');
+    const repoName = epic.repo_name || (selectedRepos.length === 1 ? selectedRepos[0].name : '');
+    const epicUrl = `https://github.com/${repoOwner}/${repoName}/issues/${epic.number}`;
     const lastActivityDate = new Date(epic.last_activity_at || epic.updated_at).toLocaleDateString();
 
     let assigneeList = '';
@@ -1141,10 +1344,13 @@ function renderEpics(data) {
       }
     }
 
+    const repoBadge = isMulti && repoName ? `<span class="repo-badge">${escapeHtml(repoName)}</span>` : '';
+
     return `
       <div class="epic-card">
         <div class="epic-card-header">
           <div class="epic-card-title-row">
+            ${repoBadge}
             <a href="${epicUrl}" target="_blank" class="epic-number">#${epic.number}</a>
             <a href="${epicUrl}" target="_blank" class="epic-title">${escapeHtml(epic.title)}</a>
           </div>
@@ -1214,6 +1420,33 @@ function renderEpics(data) {
   `;
 }
 
+// ============================================
+// View helpers
+// ============================================
+
+function showConfigSection() {
+  configSection.style.display = 'flex';
+  appSection.style.display = 'none';
+  repoInput.value = '';
+  setRepoBtn.disabled = pendingRepos.length === 0;
+  hideError();
+}
+
+function showAppSection() {
+  configSection.style.display = 'none';
+  appSection.style.display = 'flex';
+  renderNavRepos();
+}
+
+function renderNavRepos() {
+  const navReposList = document.getElementById('nav-repos-list');
+  navReposList.innerHTML = selectedRepos.map(repo => `
+    <div class="nav-repo-item">
+      <span class="repo-owner">${escapeHtml(repo.owner)}/</span><span class="repo-short">${escapeHtml(repo.name)}</span>
+    </div>
+  `).join('');
+}
+
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
@@ -1236,8 +1469,7 @@ function setSyncStatus(status, message) {
 
 function showSyncError(errorData) {
   if (errorData.isRateLimit) {
-    // Show a helpful error message in the chat as an assistant message
-    const errorMessage = `⚠️ GitHub API Rate Limit Exceeded\n\n${errorData.error}`;
+    const errorMessage = `GitHub API Rate Limit Exceeded\n\n${errorData.error}`;
     addMessage('assistant', errorMessage);
     setSyncStatus('error', 'Sync failed: Rate limit exceeded');
   } else {

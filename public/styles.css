@@ -104,6 +104,173 @@ body {
   margin-bottom: 1.5rem;
 }
 
+/* Multi-repo input */
+.repo-input-multi {
+  margin-bottom: 1rem;
+}
+
+.repo-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  min-height: 0;
+}
+
+.repo-tags:empty {
+  display: none;
+}
+
+.repo-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--surface-light);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.85rem;
+  color: var(--text);
+  animation: slideIn 0.2s ease;
+}
+
+.repo-tag.synced {
+  border-color: var(--success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.repo-tag.synced::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.repo-tag .remove-tag {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.repo-tag .remove-tag:hover {
+  color: var(--error);
+}
+
+.repo-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.repo-search-container {
+  flex: 1;
+  position: relative;
+}
+
+.repo-search-container input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.repo-search-container input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.add-repo-btn {
+  padding: 0.75rem;
+  background: var(--surface-light);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.add-repo-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.add-repo-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.connect-btn {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.repo-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: none;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.repo-suggestions.show {
+  display: block;
+}
+
+.repo-suggestion {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.15s;
+  font-size: 0.9rem;
+}
+
+.repo-suggestion:hover {
+  background: var(--surface-light);
+}
+
+.repo-suggestion .synced-indicator {
+  font-size: 0.75rem;
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.repo-suggestion .synced-indicator::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+/* Legacy single input compat */
 .repo-input {
   display: flex;
   gap: 0.5rem;
@@ -209,11 +376,12 @@ body {
 }
 
 .nav-header {
-  padding: 1.5rem 1rem;
+  padding: 1rem;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 0.5rem;
 }
 
 .nav-header h2 {
@@ -222,6 +390,34 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-right: 0.5rem;
+}
+
+.nav-repos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-repo-item {
+  font-size: 0.85rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.2rem 0;
+  line-height: 1.3;
+}
+
+.nav-repo-item .repo-short {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.nav-repo-item .repo-owner {
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 
 .nav-items {
@@ -1103,6 +1299,29 @@ body {
   color: var(--text-secondary);
   font-size: 0.85rem;
   white-space: nowrap;
+}
+
+.repo-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: var(--surface-light);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hide repo column when single repo */
+.single-repo .repo-col {
+  display: none;
+}
+.single-repo td.repo-cell {
+  display: none;
 }
 
 .loading-cell {
