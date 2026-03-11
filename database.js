@@ -412,6 +412,104 @@ function getIssuesWithSummariesAndComments(repoId, filters = {}) {
   });
 }
 
+// Multi-repo operations
+function getAllSyncedRepos() {
+  return db.prepare('SELECT * FROM repos WHERE last_synced IS NOT NULL ORDER BY owner, name').all();
+}
+
+function getReposByIds(repoIds) {
+  if (!repoIds || repoIds.length === 0) return [];
+  const placeholders = repoIds.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM repos WHERE id IN (${placeholders})`).all(...repoIds);
+}
+
+function getMultiRepoIssues(repoIds, filters = {}) {
+  if (!repoIds || repoIds.length === 0) return [];
+  const placeholders = repoIds.map(() => '?').join(',');
+  let query = `SELECT issues.*, repos.owner AS repo_owner, repos.name AS repo_name FROM issues JOIN repos ON issues.repo_id = repos.id WHERE repo_id IN (${placeholders})`;
+  const params = [...repoIds];
+
+  if (filters.state) {
+    query += ' AND state = ?';
+    params.push(filters.state);
+  }
+  if (filters.is_bug !== undefined) {
+    query += ' AND is_bug = ?';
+    params.push(filters.is_bug ? 1 : 0);
+  }
+  if (filters.is_stale !== undefined) {
+    query += ' AND is_stale = ?';
+    params.push(filters.is_stale ? 1 : 0);
+  }
+  if (filters.severity) {
+    query += ' AND severity = ?';
+    params.push(filters.severity);
+  }
+  if (filters.project_status) {
+    query += ' AND project_status = ?';
+    params.push(filters.project_status);
+  }
+  if (filters.sprint) {
+    query += ' AND sprint = ?';
+    params.push(filters.sprint);
+  }
+  if (filters.assignee) {
+    query += ' AND assignees LIKE ?';
+    params.push(`%"${filters.assignee}"%`);
+  }
+  if (filters.search) {
+    query += ' AND (title LIKE ? OR body LIKE ?)';
+    const searchPattern = `%${filters.search}%`;
+    params.push(searchPattern, searchPattern);
+  }
+  if (filters.limit) {
+    query += ' ORDER BY updated_at DESC LIMIT ?';
+    params.push(filters.limit);
+  } else {
+    query += ' ORDER BY updated_at DESC';
+  }
+
+  return db.prepare(query).all(...params);
+}
+
+function getMultiRepoIssueCount(repoIds, filters = {}) {
+  if (!repoIds || repoIds.length === 0) return 0;
+  const placeholders = repoIds.map(() => '?').join(',');
+  let query = `SELECT COUNT(*) as count FROM issues WHERE repo_id IN (${placeholders})`;
+  const params = [...repoIds];
+
+  if (filters.state) {
+    query += ' AND state = ?';
+    params.push(filters.state);
+  }
+  if (filters.is_bug !== undefined) {
+    query += ' AND is_bug = ?';
+    params.push(filters.is_bug ? 1 : 0);
+  }
+  if (filters.is_stale !== undefined) {
+    query += ' AND is_stale = ?';
+    params.push(filters.is_stale ? 1 : 0);
+  }
+  if (filters.severity) {
+    query += ' AND severity = ?';
+    params.push(filters.severity);
+  }
+
+  return db.prepare(query).get(...params).count;
+}
+
+function getMultiRepoIssuesWithSummaries(repoIds, filters = {}) {
+  const issues = getMultiRepoIssues(repoIds, filters);
+  return issues.map(issue => {
+    const summary = getSummary(issue.id, 'quick');
+    return {
+      ...issue,
+      labels: JSON.parse(issue.labels),
+      summary: summary ? summary.content : null
+    };
+  });
+}
+
 module.exports = {
   db,
   initDatabase,
@@ -432,5 +530,10 @@ module.exports = {
   getCachedReport,
   saveComment,
   getComments,
-  getIssuesWithSummariesAndComments
+  getIssuesWithSummariesAndComments,
+  getAllSyncedRepos,
+  getReposByIds,
+  getMultiRepoIssues,
+  getMultiRepoIssueCount,
+  getMultiRepoIssuesWithSummaries
 };

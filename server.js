@@ -868,6 +868,553 @@ app.get('/api/debug/:owner/:name', (req, res) => {
   }
 });
 
+// ============================================
+// Multi-repo API endpoints
+// ============================================
+
+// List all synced repos (for the multi-select UI)
+app.get('/api/repos', (req, res) => {
+  try {
+    const repos = db.getAllSyncedRepos();
+    res.json({ repos });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get multi-repo issues with filters
+app.post('/api/multi/issues', (req, res) => {
+  try {
+    const { repos: repoList, state, severity, search, limit } = req.body;
+
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    // Resolve repo IDs from owner/name pairs
+    const repoIds = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) repoIds.push(repo.id);
+    }
+
+    if (repoIds.length === 0) {
+      return res.json({ issues: [], total: 0 });
+    }
+
+    const filters = {};
+    if (state) filters.state = state;
+    if (severity) filters.severity = severity;
+    if (search) filters.search = search;
+    if (limit) filters.limit = parseInt(limit);
+
+    const issues = db.getMultiRepoIssuesWithSummaries(repoIds, filters);
+    res.json({ issues, total: issues.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get multi-repo stats
+app.post('/api/multi/stats', (req, res) => {
+  try {
+    const { repos: repoList } = req.body;
+
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const repoIds = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) repoIds.push(repo.id);
+    }
+
+    if (repoIds.length === 0) {
+      return res.json({ stats: { total: 0, open: 0, closed: 0, bugs: 0, stale: 0 } });
+    }
+
+    const stats = {
+      total: db.getMultiRepoIssueCount(repoIds),
+      open: db.getMultiRepoIssueCount(repoIds, { state: 'open' }),
+      closed: db.getMultiRepoIssueCount(repoIds, { state: 'closed' }),
+      bugs: db.getMultiRepoIssueCount(repoIds, { is_bug: true, state: 'open' }),
+      stale: db.getMultiRepoIssueCount(repoIds, { is_stale: true })
+    };
+
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-repo insights
+app.post('/api/multi/insights', (req, res) => {
+  try {
+    const { repos: repoList } = req.body;
+
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const repoIds = [];
+    const repoMetas = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) {
+        repoIds.push(repo.id);
+        repoMetas.push(repo);
+      }
+    }
+
+    if (repoIds.length === 0) {
+      return res.json({ stats: { total: 0, open: 0, closed: 0, bugs: 0, stale: 0 }, severityBreakdown: {}, recentActivity: 0, wordcloud: [] });
+    }
+
+    const stats = {
+      total: db.getMultiRepoIssueCount(repoIds),
+      open: db.getMultiRepoIssueCount(repoIds, { state: 'open' }),
+      closed: db.getMultiRepoIssueCount(repoIds, { state: 'closed' }),
+      bugs: db.getMultiRepoIssueCount(repoIds, { is_bug: true, state: 'open' }),
+      stale: db.getMultiRepoIssueCount(repoIds, { is_stale: true })
+    };
+
+    const severityBreakdown = {};
+    const severityLevels = ['P0', 'P1', 'P2', 'P3', 'P4'];
+    for (const level of severityLevels) {
+      severityBreakdown[level] = db.getMultiRepoIssueCount(repoIds, { state: 'open', severity: level });
+    }
+
+    const allIssues = db.getMultiRepoIssues(repoIds);
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const recentActivity = allIssues.filter(i => i.updated_at >= sevenDaysAgo).length;
+
+    // Last synced = most recent sync across all repos
+    const lastSynced = Math.max(...repoMetas.map(r => r.last_synced || 0));
+
+    // Word cloud from open issues
+    const stopWords = new Set([
+      'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+      'of', 'with', 'by', 'from', 'is', 'it', 'as', 'be', 'are', 'was',
+      'were', 'been', 'has', 'have', 'had', 'do', 'does', 'did', 'will',
+      'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'not',
+      'no', 'nor', 'so', 'if', 'then', 'than', 'that', 'this', 'these',
+      'those', 'i', 'we', 'you', 'he', 'she', 'they', 'me', 'us', 'him',
+      'her', 'them', 'my', 'our', 'your', 'his', 'its', 'their', 'what',
+      'which', 'who', 'whom', 'when', 'where', 'why', 'how', 'all', 'each',
+      'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such',
+      'only', 'own', 'same', 'also', 'just', 'about', 'above', 'after',
+      'again', 'any', 'because', 'before', 'being', 'below', 'between',
+      'during', 'further', 'here', 'into', 'once', 'out', 'over', 'under',
+      'until', 'up', 'very', 'while', 'there', 'through', 'too', 'don',
+      'doesn', 'didn', 'won', 'shouldn', 'couldn', 'wouldn', 'isn', 'aren',
+      'wasn', 'weren', 'hasn', 'haven', 'hadn', 'get', 'got', 'make',
+      'new', 'use', 'using', 'used', 'need', 'needs', 'way', 'via', 'vs',
+      'etc', 'eg', 'ie', 'de', 'le', 'la', 'el', 'en', 'es', 'et',
+    ]);
+
+    const wordCounts = {};
+    const openIssues = allIssues.filter(i => i.state === 'open');
+
+    for (const issue of openIssues) {
+      const words = issue.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length > 2 && !stopWords.has(w) && !/^\d+$/.test(w));
+
+      for (const word of words) {
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+      }
+
+      try {
+        const labels = JSON.parse(issue.labels || '[]');
+        for (const label of labels) {
+          const labelKey = label.toLowerCase();
+          wordCounts[labelKey] = (wordCounts[labelKey] || 0) + 2;
+        }
+      } catch (e) { /* skip */ }
+    }
+
+    const wordcloud = Object.entries(wordCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 60)
+      .map(([text, count]) => ({ text, count }));
+
+    res.json({
+      stats,
+      severityBreakdown,
+      recentActivity,
+      lastSynced,
+      wordcloud
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-repo WIP
+app.post('/api/multi/wip', async (req, res) => {
+  try {
+    const { repos: repoList } = req.body;
+
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const repoIds = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) repoIds.push(repo.id);
+    }
+
+    if (repoIds.length === 0) {
+      return res.json({ summary: '', byEngineer: [] });
+    }
+
+    const issues = db.getMultiRepoIssuesWithSummaries(repoIds, { state: 'open' });
+
+    const wipStatuses = ['in progress', 'in development', 'doing', 'active', 'started', 'wip'];
+    const wipIssues = issues.filter(issue => {
+      if (!issue.project_status) return false;
+      return wipStatuses.some(status => issue.project_status.toLowerCase().includes(status));
+    });
+
+    if (wipIssues.length === 0) {
+      return res.json({ summary: '', byEngineer: [] });
+    }
+
+    const byEngineer = {};
+    wipIssues.forEach(issue => {
+      let assignees = [];
+      if (issue.assignees) {
+        try {
+          assignees = typeof issue.assignees === 'string' ? JSON.parse(issue.assignees) : issue.assignees;
+        } catch (e) { assignees = []; }
+      }
+      if (assignees.length === 0) {
+        if (!byEngineer['Unassigned']) byEngineer['Unassigned'] = [];
+        byEngineer['Unassigned'].push(issue);
+      } else {
+        assignees.forEach(assignee => {
+          if (!byEngineer[assignee]) byEngineer[assignee] = [];
+          byEngineer[assignee].push(issue);
+        });
+      }
+    });
+
+    const summaryPrompt = `You are a product manager reviewing what engineers are currently building across multiple repositories. Based on the following open issues that are marked as "In Progress", create a concise bullet-point summary of what's being built.
+
+Issues in progress:
+${wipIssues.map((issue, i) => `${i + 1}. [${issue.repo_owner}/${issue.repo_name}#${issue.number}] ${issue.title}
+   Summary: ${issue.summary || 'No summary'}
+   Assignee: ${issue.assignees ? JSON.parse(issue.assignees).join(', ') : 'Unassigned'}
+   Sprint: ${issue.sprint || 'N/A'}`).join('\n\n')}
+
+Provide a brief overview in 3-5 bullet points of what's actively being developed using markdown formatting. Use bold text for emphasis and reference issue numbers with their repo. Focus on user-facing features and improvements. Start directly with bullet points, no preamble.`;
+
+    const summary = await aiService.chat(summaryPrompt);
+
+    const byEngineerArray = Object.keys(byEngineer).map(assignee => ({
+      assignee,
+      issues: byEngineer[assignee].map(issue => ({
+        number: issue.number,
+        title: issue.title,
+        project_status: issue.project_status,
+        html_url: issue.html_url,
+        repo_owner: issue.repo_owner,
+        repo_name: issue.repo_name
+      }))
+    })).sort((a, b) => {
+      if (a.assignee === 'Unassigned') return 1;
+      if (b.assignee === 'Unassigned') return -1;
+      return a.assignee.localeCompare(b.assignee);
+    });
+
+    res.json({ summary, byEngineer: byEngineerArray });
+  } catch (error) {
+    console.error('Multi WIP error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-repo epics
+app.post('/api/multi/epics', async (req, res) => {
+  try {
+    const { repos: repoList } = req.body;
+
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const repoIds = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) repoIds.push(repo.id);
+    }
+
+    if (repoIds.length === 0) {
+      return res.json({ epics: [], total: 0, aiSummary: null });
+    }
+
+    const issues = db.getMultiRepoIssuesWithSummaries(repoIds, { state: 'open' });
+
+    const epics = [];
+    for (const issue of issues) {
+      const hasEpicLabel = issue.labels.some(l => /epic/i.test(l));
+      if (!hasEpicLabel) continue;
+
+      const body = issue.body || '';
+      const taskPattern = /- \[([ xX])\]/g;
+      const tasks = [];
+      let match;
+      while ((match = taskPattern.exec(body)) !== null) {
+        tasks.push({ completed: match[1] !== ' ' });
+      }
+
+      const completedCount = tasks.filter(t => t.completed).length;
+      const totalCount = tasks.length;
+
+      epics.push({
+        number: issue.number,
+        title: issue.title,
+        html_url: issue.html_url,
+        state: issue.state,
+        labels: issue.labels,
+        summary: issue.summary,
+        severity: issue.severity,
+        assignees: issue.assignees,
+        project_status: issue.project_status,
+        updated_at: issue.updated_at,
+        created_at: issue.created_at,
+        last_activity_at: issue.last_activity_at || issue.updated_at,
+        repo_owner: issue.repo_owner,
+        repo_name: issue.repo_name,
+        subtasks: {
+          completed: completedCount,
+          total: totalCount,
+          percentage: totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+        }
+      });
+    }
+
+    epics.sort((a, b) => b.last_activity_at - a.last_activity_at);
+
+    let aiSummary = null;
+    if (epics.length > 0) {
+      const epicsSummaryInput = epics.slice(0, 20).map((epic, i) => {
+        const progress = epic.subtasks.total > 0
+          ? `${epic.subtasks.completed}/${epic.subtasks.total} subtasks done (${epic.subtasks.percentage}%)`
+          : 'No subtask checklist';
+        return `${i + 1}. [${epic.repo_owner}/${epic.repo_name}#${epic.number}] ${epic.title}
+   Progress: ${progress}
+   Summary: ${epic.summary || 'No summary'}
+   Status: ${epic.project_status || 'N/A'}`;
+      }).join('\n\n');
+
+      const prompt = `You are a project manager reviewing the status of epics across multiple repositories. Based on the following open epics and their subtask progress, provide a concise summary of the overall state of play.
+
+Epics:
+${epicsSummaryInput}
+
+Provide:
+1. A brief overall status (1-2 sentences)
+2. Which epics are closest to completion
+3. Which epics need the most attention
+4. Key risks or blockers if apparent
+
+Use markdown formatting with bold text and bullet points. Reference issue numbers with their repo. Be direct and concise. Start directly with the content, no preamble.`;
+
+      try {
+        aiSummary = await aiService.chat(prompt);
+      } catch (err) {
+        console.error('Error generating multi epics summary:', err.message);
+      }
+    }
+
+    res.json({ epics, total: epics.length, aiSummary });
+  } catch (error) {
+    console.error('Multi Epics error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-repo ask (chat)
+app.post('/api/multi/ask', async (req, res) => {
+  try {
+    const { repos: repoList, question } = req.body;
+
+    if (!question) {
+      return res.status(400).json({ error: 'Question is required' });
+    }
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const repoIds = [];
+    const repoNames = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) {
+        repoIds.push(repo.id);
+        repoNames.push(`${r.owner}/${r.name}`);
+      }
+    }
+
+    if (repoIds.length === 0) {
+      return res.status(404).json({ error: 'No synced repositories found' });
+    }
+
+    const questionLower = question.toLowerCase();
+    let filters = { limit: 50 };
+    if (questionLower.includes('bug') || questionLower.includes('error') || questionLower.includes('fix')) {
+      filters = { is_bug: true, limit: 40 };
+    } else if (questionLower.includes('stale') || questionLower.includes('old') || questionLower.includes('zombie')) {
+      filters = { is_stale: true, limit: 40 };
+    } else if (questionLower.includes('open')) {
+      filters = { state: 'open', limit: 40 };
+    } else if (questionLower.includes('closed')) {
+      filters = { state: 'closed', limit: 40 };
+    }
+
+    const relevantIssues = db.getMultiRepoIssuesWithSummaries(repoIds, filters);
+
+    const stats = {
+      total: db.getMultiRepoIssueCount(repoIds),
+      open: db.getMultiRepoIssueCount(repoIds, { state: 'open' }),
+      closed: db.getMultiRepoIssueCount(repoIds, { state: 'closed' }),
+      bugs: db.getMultiRepoIssueCount(repoIds, { is_bug: true, state: 'open' }),
+      stale: db.getMultiRepoIssueCount(repoIds, { is_stale: true })
+    };
+
+    const prompt = `You are analyzing GitHub issues across multiple repositories: ${repoNames.join(', ')}
+
+Repository Statistics (combined):
+- Total Issues: ${stats.total}
+- Open Issues: ${stats.open}
+- Closed Issues: ${stats.closed}
+- Open Bugs: ${stats.bugs}
+- Stale Issues (90+ days): ${stats.stale}
+
+Relevant Issues (with AI summaries):
+${relevantIssues.map(i => `
+[${i.repo_owner}/${i.repo_name}] #${i.number}: ${i.title}
+State: ${i.state} | Labels: ${i.labels.join(', ') || 'none'}
+Created: ${new Date(i.created_at).toLocaleDateString()} | Updated: ${new Date(i.updated_at).toLocaleDateString()}
+Summary: ${i.summary || 'No summary available'}
+URL: ${i.html_url}
+`).join('\n---\n')}
+
+User Question: ${question}
+
+Provide a comprehensive, actionable answer using markdown formatting. Use headers, bullet points, bold text, and code blocks where appropriate. Include specific issue numbers with their repo (e.g., owner/repo#123) when relevant. Be direct and helpful.`;
+
+    const response = await aiService.chatWithModel(prompt, 'query');
+    res.json({ answer: response });
+  } catch (error) {
+    console.error('Multi ask error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-repo starter reports
+app.post('/api/multi/report/:type', async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { repos: repoList } = req.body;
+
+    if (!repoList || !Array.isArray(repoList) || repoList.length === 0) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const repoIds = [];
+    const repoNames = [];
+    for (const r of repoList) {
+      const repo = db.getRepo(r.owner, r.name);
+      if (repo) {
+        repoIds.push(repo.id);
+        repoNames.push(`${r.owner}/${r.name}`);
+      }
+    }
+
+    if (repoIds.length === 0) {
+      return res.status(404).json({ error: 'No synced repositories found' });
+    }
+
+    let prompt = '';
+
+    if (type === 'quick-sitrep') {
+      const openIssues = db.getMultiRepoIssuesWithSummaries(repoIds, { state: 'open', limit: 100 });
+      const stats = {
+        open: db.getMultiRepoIssueCount(repoIds, { state: 'open' }),
+        bugs: db.getMultiRepoIssueCount(repoIds, { state: 'open', is_bug: true }),
+        stale: db.getMultiRepoIssueCount(repoIds, { is_stale: true })
+      };
+
+      prompt = `Generate a concise Project Management Sitrep across repositories: ${repoNames.join(', ')}.
+
+**Metrics:**
+- Total Open: ${stats.open}
+- Open Bugs: ${stats.bugs}
+- Stale (90+ days): ${stats.stale}
+
+**Recent Open Issues (Last 20):**
+${openIssues.slice(0, 20).map(i => `[${i.repo_owner}/${i.repo_name}] #${i.number}: ${i.title} - ${i.summary || ''}`).join('\n')}
+
+Write a concise PM-style status report using markdown formatting. Group by repository where it makes sense. Include issue numbers with their repo prefix.`;
+    } else if (type === 'recent-bugs') {
+      const bugIssues = db.getMultiRepoIssuesWithSummaries(repoIds, { is_bug: true, state: 'open' });
+      prompt = `Analyze recent bugs across repositories: ${repoNames.join(', ')}.
+
+Open Bugs (${bugIssues.length}):
+${bugIssues.slice(0, 30).map(i => `[${i.repo_owner}/${i.repo_name}] #${i.number}: ${i.title} - ${i.summary || ''}`).join('\n')}
+
+Provide a report using markdown. Group by repo where helpful.`;
+    } else if (type === 'zombie-tickets') {
+      const staleIssues = db.getMultiRepoIssuesWithSummaries(repoIds, { is_stale: true, state: 'open' });
+      prompt = `Analyze zombie tickets across repositories: ${repoNames.join(', ')}.
+
+Stale Issues (${staleIssues.length}):
+${staleIssues.slice(0, 30).map(i => `[${i.repo_owner}/${i.repo_name}] #${i.number}: ${i.title} - Last updated: ${new Date(i.updated_at).toLocaleDateString()} - ${i.summary || ''}`).join('\n')}
+
+Provide a report using markdown. Group by repo where helpful.`;
+    }
+
+    const content = await aiService.chat(prompt);
+    res.json({ content });
+  } catch (error) {
+    console.error('Multi report error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sync status for multiple repos
+app.post('/api/multi/sync-status', (req, res) => {
+  try {
+    const { repos: repoList } = req.body;
+
+    if (!repoList || !Array.isArray(repoList)) {
+      return res.status(400).json({ error: 'repos array is required' });
+    }
+
+    const statuses = {};
+    for (const r of repoList) {
+      const jobId = `${r.owner}/${r.name}`;
+      const job = syncJobs.get(jobId);
+      const repo = db.getRepo(r.owner, r.name);
+      statuses[jobId] = {
+        syncJob: job || null,
+        hasLocalData: !!(repo && repo.last_synced),
+        lastSynced: repo?.last_synced || null
+      };
+    }
+
+    res.json(statuses);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   const hasAnthropicKey = !!process.env.ANTHROPIC_API_KEY;

@@ -11,27 +11,40 @@
 </head>
 <body>
   <div class="container">
-    <!-- Repository Configuration (shown if no repo selected) -->
+    <!-- Repository Configuration (shown if no repos selected) -->
     <div id="config-section" class="config-section">
       <div class="config-card">
         <div class="config-logo">
           <span class="logo-icon">🎯</span>
           <span class="logo-text">GitRep</span>
         </div>
-        <h2>Configure Repository</h2>
-        <p>Enter a public GitHub repository to get started:</p>
+        <h2>Configure Repositories</h2>
+        <p>Add one or more GitHub repositories to get started:</p>
 
-        <div class="repo-input">
-          <input
-            type="text"
-            id="repo-input"
-            placeholder="owner/repository (e.g., openfn/lightning)"
-            autocomplete="off"
-          />
-          <button id="set-repo-btn" class="primary-btn">Connect</button>
+        <div class="repo-input-multi">
+          <div class="repo-tags" id="repo-tags"></div>
+          <div class="repo-input-row">
+            <div class="repo-search-container">
+              <input
+                type="text"
+                id="repo-input"
+                placeholder="owner/repository (e.g., openfn/lightning)"
+                autocomplete="off"
+              />
+              <div id="repo-suggestions" class="repo-suggestions"></div>
+            </div>
+            <button id="add-repo-btn" class="add-repo-btn" title="Add repository">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div id="config-error" class="error-message"></div>
+
+        <button id="set-repo-btn" class="primary-btn connect-btn" disabled>Connect</button>
 
         <div class="example-repos">
           <p>Or try an example:</p>
@@ -52,11 +65,11 @@
         </div>
 
         <div class="nav-header">
-          <h2 id="repo-name">Repository</h2>
-          <button id="change-repo-btn" class="change-repo-btn" title="Change repository">
+          <div class="nav-repos-list" id="nav-repos-list"></div>
+          <button id="change-repo-btn" class="change-repo-btn" title="Change repositories">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 11l3 3L22 4"></path>
-              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
             </svg>
           </button>
         </div>
@@ -271,6 +284,7 @@
               <thead>
                 <tr>
                   <th width="80" class="sortable" data-sort="number">#<span class="sort-icon"></span></th>
+                  <th width="120" class="sortable repo-col" data-sort="repo_name">Repo<span class="sort-icon"></span></th>
                   <th width="80" class="sortable" data-sort="severity">Severity<span class="sort-icon"></span></th>
                   <th width="120" class="sortable" data-sort="project_status">Status<span class="sort-icon"></span></th>
                   <th class="sortable" data-sort="title">Title<span class="sort-icon"></span></th>
